@@ -52,9 +52,9 @@ npm i -D prisma @types/passport-jwt @types/cookie-parser @types/bcrypt pino-pret
 npx prisma init --datasource-provider postgresql
 ```
 
-- [ ] Copy the full schema from **PLAN §2** into `prisma/schema.prisma` — `User`, `RefreshToken`, `Board`, `BoardRole`, `BoardMember`, `Column`, `Task`, `AuditLog`, with **every `@@index`/`@@unique` exactly as written** (they're load-bearing, see PLAN §2 and §7.8)
-- [ ] `DATABASE_URL` in `.env` → `postgresql://kanban:kanban@localhost:5432/kanban?schema=public`
-- [ ] Start a throwaway Postgres for local dev:
+- [x] Copy the full schema from **PLAN §2** into `prisma/schema.prisma` — `User`, `RefreshToken`, `Board`, `BoardRole`, `BoardMember`, `Column`, `Task`, `AuditLog`, with **every `@@index`/`@@unique` exactly as written** (they're load-bearing, see PLAN §2 and §7.8)
+- [x] `DATABASE_URL` in `.env` → `postgresql://kanban:kanban@localhost:5432/kanban?schema=public`
+- [x] Start a throwaway Postgres for local dev:
       `docker run --name kanban-db -e POSTGRES_USER=kanban -e POSTGRES_PASSWORD=kanban -e POSTGRES_DB=kanban -p 5432:5432 -d postgres:16-alpine`
 
 ```bash
@@ -63,7 +63,7 @@ npx prisma generate
 npx prisma studio          # eyeball the tables
 ```
 
-- [ ] Commit `prisma/migrations/` — the deploy step replays these, never `db push`
+- [ ] Commit `prisma/migrations/` — the deploy step replays these, never `db push` *(left for you — migration files are staged/present but not committed, per this repo's workflow rule that commits stay in your hands)*
 
 ---
 

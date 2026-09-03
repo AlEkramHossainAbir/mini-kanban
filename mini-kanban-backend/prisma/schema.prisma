@@ -1,0 +1,118 @@
+// Mini Kanban — Prisma schema
+// Source of truth for design decisions: PLAN_EN.md §2 (Database Schema Design)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedBoards   Board[]        @relation("BoardOwner")
+  boardMembers  BoardMember[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  tokenHash         String    @unique
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Board {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  ownerId     String
+  owner       User     @relation("BoardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members BoardMember[]
+  columns Column[]
+
+  @@index([ownerId])
+}
+
+enum BoardRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model BoardMember {
+  id        String    @id @default(uuid())
+  boardId   String
+  board     Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      BoardRole
+  createdAt DateTime  @default(now())
+
+  @@unique([boardId, userId])
+  @@index([userId])
+}
+
+model Column {
+  id        String   @id @default(uuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title     String
+  rank      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks Task[]
+
+  @@index([boardId, rank])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  columnId    String
+  column      Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  boardId     String   // denormalized: fast board-scoped authz, and the natural future shard key (§7)
+  title       String
+  description String?
+  rank        String
+  version     Int      @default(0) // optimistic concurrency token, see §3
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([columnId, rank])
+  @@index([boardId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  boardId    String?  // denormalized, not a FK — survives board deletion so the audit trail isn't lost, and is the column §7's board-based partitioning actually shards on; nullable so non-board security events (e.g. refresh-token reuse detection, §1) can also be audited
+  action     String   // e.g. "BOARD_SHARE", "MEMBER_REMOVE", "ROLE_CHANGE"
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([boardId, createdAt])
+}
