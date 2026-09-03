@@ -35,6 +35,7 @@ Browser → Next.js (client components, server-rendered shell) → REST calls (`
 - Cookie names: `mk_at` (access, path `/`), `mk_rt` (refresh, path scoped to `/api/v1/auth/refresh` only, to minimize where it's ever sent).
 - `POST /auth/refresh` validates + rotates `mk_rt` and reissues both cookies. The frontend's fetch layer retries a request once after a `401` by calling refresh, then redirects to `/login` if that also fails.
 - `POST /auth/logout` performs **real server-side revocation** (marks the refresh token row revoked) and clears both cookies — a copied cookie doesn't stay valid until natural expiry.
+- **(hardening) The browser only ever talks to one origin.** `/api/v1/*` is proxied to Nest through `next.config.js` rewrites (the WebSocket upgrade rides the same origin). This is not cosmetic: `SameSite=Lax` cookies are **not sent on cross-site requests**, so a split deployment — frontend on Vercel, API on Railway, two different registrable domains — would silently break login entirely on the deployed demo while working perfectly on `localhost`. Proxying keeps the cookies first-party, keeps `SameSite=Lax` intact, and removes the need for cross-origin credentialed CORS in production altogether. `enableCors` stays configured for local development, where the two dev servers do sit on different ports. The alternative (`SameSite=None; Secure`) is rejected: it would re-open exactly the CSRF surface §5 works to close.
 
 ---
 
@@ -136,7 +137,7 @@ model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  boardId    String   // denormalized, not a FK — survives board deletion so the audit trail isn't lost, and is the column §7's board-based partitioning actually shards on
+  boardId    String?  // denormalized, not a FK — survives board deletion so the audit trail isn't lost, and is the column §7's board-based partitioning actually shards on; nullable so non-board security events (e.g. refresh-token reuse detection, §1) can also be audited
   action     String   // e.g. "BOARD_SHARE", "MEMBER_REMOVE", "ROLE_CHANGE"
   entityType String
   entityId   String
@@ -174,7 +175,38 @@ Rejected approach: an integer `position` column renumbered on every move — tha
 
 ---
 
-## 3. Task Movement API
+## 3. API Surface & Task Movement
+
+### Full endpoint list
+
+Every route below `/api/v1`. "Role" is the minimum `BoardMember` role required (§4); `EDITOR+` means `EDITOR` or `OWNER`.
+
+| Method | Route | Role | Notes |
+|---|---|---|---|
+| POST | `/auth/register` | public | |
+| POST | `/auth/login` | public | sets `mk_at` + `mk_rt` |
+| POST | `/auth/refresh` | cookie | rotates the refresh token |
+| POST | `/auth/logout` | auth | real server-side revocation |
+| GET | `/auth/me` | auth | current user, for the app shell |
+| GET | `/boards` | auth | cursor-paginated; boards the user is a member of |
+| POST | `/boards` | auth | creator auto-inserted as `OWNER` member |
+| GET | `/boards/:id` | member | board + columns + tasks; **every task includes its `version`** (the move API is unusable without it) |
+| PATCH | `/boards/:id` | EDITOR+ | rename / describe |
+| DELETE | `/boards/:id` | OWNER | cascades columns → tasks |
+| GET | `/boards/:id/members` | member | |
+| POST | `/boards/:id/members` | OWNER | share with a registered user by email + role |
+| PATCH | `/boards/:id/members/:userId` | OWNER | role change |
+| DELETE | `/boards/:id/members/:userId` | OWNER | last-owner guard (§4) |
+| POST | `/boards/:id/columns` | EDITOR+ | appended at end via the rank utility |
+| PATCH | `/columns/:id` | EDITOR+ | rename |
+| DELETE | `/columns/:id` | EDITOR+ | cascades its tasks |
+| PATCH | `/columns/:id/move` | EDITOR+ | **column reordering** — same rank utility, same neighbor-id payload shape as task move |
+| POST | `/columns/:id/tasks` | EDITOR+ | appended at end |
+| PATCH | `/tasks/:id` | EDITOR+ | title / description |
+| DELETE | `/tasks/:id` | EDITOR+ | |
+| PATCH | `/tasks/:id/move` | EDITOR+ | the move endpoint, below |
+
+### The move endpoint
 
 **Endpoint:** `PATCH /api/v1/tasks/:id/move`
 
@@ -185,11 +217,16 @@ Rejected approach: an integer `position` column renumbered on every move — tha
   "targetColumnId": "uuid",
   "beforeTaskId": "uuid | null",
   "afterTaskId": "uuid | null",
+  "position": 2,
   "expectedVersion": 4
 }
 ```
 
-The client sends the **neighbor task ids** it currently sees the dragged task between, not a raw numeric index. Indices go stale the instant another user's move lands; neighbor ids let the server re-derive the true midpoint from current state inside the transaction, and fall back to append-at-end (self-healing) if a referenced neighbor has since moved or been deleted. The same endpoint and payload shape handles both same-column reorder and cross-column move — `targetColumnId` equal to the current column is a reorder, different is a cross-column move.
+The UI sends the **neighbor task ids** it currently sees the dragged task between, not a raw numeric index. Indices go stale the instant another user's move lands; neighbor ids let the server re-derive the true midpoint from current state inside the transaction, and fall back to append-at-end (self-healing) if a referenced neighbor has since moved or been deleted.
+
+**`position` is also accepted, deliberately.** The brief asks for "moving a task across different columns **to a specific position index**", so the endpoint honours that contract literally: if `position` is supplied (and neighbor ids are not), the server resolves it to the neighbor pair *inside the same transaction* — `SELECT id, rank FROM "Task" WHERE "columnId" = $1 ORDER BY rank, id OFFSET max(position-1,0) LIMIT 2` — and then follows the identical rank-midpoint path. So an index-based caller gets exactly the same race-safe behaviour as the UI; the index is resolved against live server state rather than the client's possibly-stale snapshot. When both are supplied, neighbor ids win (they carry more information). Out-of-range indices clamp to start/end rather than erroring.
+
+The same endpoint and payload shape handles both same-column reorder and cross-column move — `targetColumnId` equal to the current column is a reorder, different is a cross-column move. `PATCH /columns/:id/move` mirrors it exactly for column ordering.
 
 **Response (200):**
 
@@ -225,6 +262,8 @@ WHERE id = $3 AND version = $4
 ```
 
 run inside `prisma.$transaction(..., { isolation: Serializable })`. A zero-row match means someone else moved it first — the service returns `409` with the fresh row. `SERIALIZABLE` isolation additionally protects against the subtler race where two concurrent moves both read the same neighbor pair and compute the *same* midpoint (which would collide); Postgres aborts one transaction with a serialization failure, the service retries the midpoint computation once against fresh state, then gives up with `409` if it still conflicts.
+
+**If two ranks ever did collide, nothing user-visible breaks.** Both the server (`ORDER BY rank, id`) and the client (§6) break ties on `id`, so a duplicate rank still produces one stable, deterministic order for everyone. A `@@unique([columnId, rank])` constraint is therefore *deliberately not* added: it would convert a rare, harmless collision into a user-facing `500` on a drag. The uniqueness of ranks is an optimisation, not a correctness requirement — which is the right way round.
 
 **Why optimistic concurrency over row locking (`SELECT ... FOR UPDATE`):** conflicts are rare (two people moving the *same* task at the *same* instant), and optimistic concurrency keeps the transaction short — no lock is held across the network round trip, just read-neighbors → compute midpoint → conditional write, all inside one quick transaction. This is deliberately **not** last-write-wins: silent data loss on a shared board is a real correctness bug, and "conflict-free" in the assessment brief is read here as "detected and resolved with the client shown the true state," not merely "doesn't crash."
 
@@ -294,6 +333,9 @@ WebSockets were chosen over polling (strictly worse UX for equal or more effort)
 - **(hardening) Every cache write is a keyed upsert, never a wholesale replace.** Moving a task, applying a `task.moved` WebSocket event, and reconciling a mutation response all go through one function that updates a single task by `id` inside the existing cached structure. The board's full state is only ever replaced wholesale by the initial `GET /boards/:id` (or an explicit reconnect resync, §3) — never by a move response or event. This is what prevents both **duplicate cards** (a WS event or retried request would otherwise be appended instead of moved) and **disappearing cards** (a partial/incomplete response would otherwise blank out tasks it didn't mention).
 - **(hardening) Stable identity and a single sort key.** React keys are always `task.id`, never array index. The rendered order of a column's tasks is always `Array.sort` by the `rank` string (with `id` as a tiebreak) and nothing else — no separate client-side reordering logic exists that could disagree with the server's rank, which is the usual root cause of "drag one card, unrelated cards reshuffle."
 - **(hardening) Per-task request sequencing.** Each outgoing move mutation is tagged with a locally incrementing sequence number per task id (§3); an older response arriving after a newer one has already landed is dropped rather than applied, so rapidly dragging the same card two or three times in a row can't leave it in a stale position because of response reordering.
+- **(hardening) Optimistic create swaps a temp id, never appends twice.** Creating a task inserts a placeholder card carrying a client-generated `tempId` and a `pending` flag; when the server responds, that row is **replaced in place** (temp id → real id), not appended. Without this explicit swap, the keyed-upsert rule above would treat the server's real id as a brand-new task and the card would appear twice — the same duplicate bug, arriving through the create path instead of the move path. An inbound `task.created` WebSocket event matching a still-pending temp row is de-duplicated the same way.
+- **UX: drag ergonomics.** `dnd-kit`'s auto-scroll is enabled so dragging toward an edge scrolls the board horizontally (and the column vertically) instead of trapping the card at the viewport boundary; a persistent drop placeholder — a dashed gap the exact height of the dragged card — shows where it will land rather than making the user infer it; and **every column is registered as a droppable container in its own right**, not merely as a list of sortable items, so dropping into an *empty* column works. That last one is the single most common dnd-kit Kanban bug: with only item-level drop targets, an empty column has nothing to hit and the card silently snaps back.
+- **UX: undo on move.** The post-move toast offers **Undo** for ~5 seconds, implemented as one symmetric call to the same endpoint with the previous neighbor ids — cheap, since the client already captured that snapshot for rollback. Mis-drops are the most common Kanban user error, so this is the highest-value premium touch available for the effort. Deletes get a confirm dialog instead of undo — resurrecting a row under a new id would churn ids and complicate the cache rules above for little gain.
 - **State management: TanStack Query only** for server state — board/column/task data *is* the app's state, kept fresh by REST responses and the WebSocket-driven cache patches from §3. No Redux/Zustand needed at this scope. Local-only UI state (which modal is open, in-progress drag visuals) stays in component state, deliberately kept separate.
 - **Avoiding re-render storms mid-drag:** board data is structured so each `Column` subscribes to its own slice of the cache rather than the whole board re-rendering on every drag frame; `TaskCard` is `React.memo`'d keyed on `id` + `rank`/`version`; `dnd-kit`'s `useSortable` drives the drag gesture itself via CSS transforms, not layout-affecting state, which is what keeps dragging smooth before the drop even commits. Virtualization (`@tanstack/react-virtual`) for very long columns is documented as the natural next step, not built by default since demo-sized boards don't need it.
 - **Loading states:** skeleton placeholders shaped like real columns/cards (Tailwind `animate-pulse`) instead of a blank screen or spinner, driven by TanStack Query's `isLoading`.
@@ -361,6 +403,11 @@ mini-kanban/
     └── .env.example
 ```
 
+**(submission risk) Git submodules vs. "a single repository".** The brief asks for *one* GitHub repository **containing both frontend and backend directories**. Right now those two directories are **git submodules** pointing at separate repos — so a reviewer who runs a plain `git clone` (without `--recurse-submodules`, which most people do by reflex) gets two **empty folders** and a broken `docker-compose up`. That is the single highest-severity delivery risk in this plan, and it is a packaging problem, not a code problem. Resolve it before submission, preferred option first:
+
+1. **De-submodule (recommended).** Remove the submodule entries and commit both projects as ordinary directories in this repo, so a plain clone is complete and matches the brief literally. Their separate repos can still exist for portfolio purposes; the submission just shouldn't depend on them.
+2. **Keep submodules only if there's a reason to.** Then the README's *first* command must be `git clone --recurse-submodules …`, with `git submodule update --init --recursive` given as the recovery step, and a live deployment link becomes materially more important as independent proof the thing runs.
+
 **Docker Compose:** three services — `db` (`postgres:16-alpine`, named volume, healthcheck), `backend` (builds from `mini-kanban-backend/Dockerfile`, waits for `db` healthy, runs `prisma migrate deploy` then starts, env from root `.env`), `frontend` (builds from `mini-kanban-frontend/Dockerfile`, depends on `backend`, `NEXT_PUBLIC_API_URL` pointed at it). One `docker-compose up --build` produces a working stack — this directly satisfies the assessment's "preferable" Docker deliverable.
 
 **Root README:** prerequisites (Docker, Node LTS), `git clone --recurse-submodules`, `docker-compose up --build` quick start, local (non-Docker) dev instructions per submodule, sample `.env` blocks for backend (`DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `FRONTEND_URL`) and frontend (`NEXT_PUBLIC_API_URL`), a short architecture-overview section pointing at this plan, and an optional live-deployment link placeholder.
@@ -370,7 +417,23 @@ mini-kanban/
 - **Day 1 — Backend foundation.** `nest new` in `mini-kanban-backend`; Prisma schema (§2) + first migration; `PrismaModule`; `AuthModule` (register/login/refresh/logout, bcrypt, JWT strategies, cookie handling); global `ValidationPipe`/`helmet`/CORS/throttler wiring; `docker-compose.yml` with working `db` + `backend`. *Done when:* register/login/refresh/logout works end-to-end against Dockerized Postgres.
 - **Day 2 — Domain CRUD, authorization, move API.** `BoardsModule`/`ColumnsModule`/`TasksModule` full CRUD; `BoardAccessGuard`/`RolesGuard`/`@RequireRole` (§4); board-sharing endpoints; the rank utility (midpoint + rebalance, unit-tested in isolation); `PATCH /tasks/:id/move` with optimistic concurrency, cross-board rejection, and deadlock-free design (§3); `BoardGateway` emitting `task.moved` with join-time authorization. *Done when:* the full API surface is testable via REST client, including the concurrency/IDOR/cross-board test cases in §10.
 - **Day 3 — Frontend.** `create-next-app` in `mini-kanban-frontend`; Tailwind; auth pages wired to the cookie flow; boards list (cursor pagination); board detail page with columns+tasks; `dnd-kit` integration with optimistic updates (§6); TanStack Query + WebSocket reconciliation; skeleton states; keyboard DnD pass. *Done when:* a real drag-and-drop board works in the browser against the real backend.
-- **Day 4 — Polish, hardening, delivery.** Framer Motion pass; empty/error states; audit-log wiring; security checklist pass against §5; the full §10 QA checklist run end-to-end; full `docker-compose up --build` smoke test from a clean clone (zero manual steps beyond creating `.env`); finalize root README; optional deploy (e.g. Vercel for frontend + Railway/Render for backend+Postgres) if time remains.
+- **Day 4 — Polish, hardening, delivery.** Framer Motion pass; empty/error states; audit-log wiring; security checklist pass against §5; the full §10 QA checklist run end-to-end; resolve the submodule packaging decision above; full `docker-compose up --build` smoke test from a clean clone (zero manual steps beyond creating `.env`); finalize root README; optional deploy (e.g. Vercel for the frontend + Railway/Render for backend+Postgres, with the API reached through the Next.js rewrite from §1 so cookies stay first-party) if time remains.
+
+**Automated tests — kept deliberately small.** Not a full test suite; just the handful whose failure would actually be embarrassing in review, and all of them cheap:
+
+- Unit: the rank utility — midpoint between two ranks, insert-at-start, insert-at-end, and a rebalance that preserves relative order. This is pure logic with no I/O, so it's fast and worth testing properly.
+- Integration (Jest + `supertest`, one test each): register→login→refresh→logout; an IDOR attempt returning `403`; a move with a stale `expectedVersion` returning `409`; a cross-board `targetColumnId` returning `400`.
+
+Four integration tests plus one unit file is roughly an afternoon, and it covers exactly the four claims in this document that a reviewer is most likely to actually probe.
+
+**If the schedule slips, cut in this order** (decided now, so the decision isn't made at 2am on day 4):
+
+1. Framer Motion polish → fall back to plain Tailwind transitions. Visual only.
+2. WebSocket live sync → the board still works fully; other users' changes just need a refresh. (§3's version-gating then goes unused but harmless.)
+3. Audit logging → the authorization rules it records are still *enforced*; only the record-keeping is lost.
+4. Keyboard drag-and-drop → regrettable, but mouse DnD still satisfies the brief.
+
+**Never cut:** the `409` conflict path, the authorization guards, and the one-command Docker bring-up. Those are the parts the assessment actually grades.
 
 ---
 
@@ -382,6 +445,10 @@ A prioritized, actually-runnable-in-4-days set of test cases, aimed at the failu
 - Drag one card and confirm no unrelated card's `rank` or position changes (guards against reshuffle bugs, §6).
 - Rapid-drag the same card three times in a row; confirm it ends up exactly where the last drop placed it, not an intermediate position (§3/§6 out-of-order protection).
 - Force a failed move (e.g. stop the backend mid-drag) and confirm the card rolls back to its pre-drag position with a visible toast, not a silent stuck state (§6).
+- Drop a card into a completely **empty column** and confirm it lands there (the classic dnd-kit droppable-container gap, §6).
+- Drag a card toward the edge of the viewport and confirm the board auto-scrolls instead of trapping it (§6).
+- Create a task on a throttled connection and confirm exactly **one** card exists once the server responds — not a pending duplicate (temp-id swap, §6).
+- Call `PATCH /tasks/:id/move` with only `position` (no neighbor ids) and confirm it lands at that index — the brief's literal contract (§3).
 
 **Concurrency**
 - Two browser sessions (or two users) move the same task at the same moment; confirm one succeeds and the other gets a `409` with the corrected state, not a silently overwritten result (§3).
@@ -399,6 +466,7 @@ A prioritized, actually-runnable-in-4-days set of test cases, aimed at the failu
 **Security**
 - Trip the `/auth/login` rate limit with repeated bad-password attempts; confirm it's throttled (§5).
 - Confirm a logged-out session's refresh token is actually rejected server-side after `POST /auth/logout` (real revocation, §1).
+- **On the deployed URL specifically** (not just localhost): log in, hard-refresh, and confirm the session persists — this is the check that catches a cross-site cookie misconfiguration, which `localhost` testing cannot reveal (§1).
 
 **Accessibility**
 - Complete a full move (pick up, move across columns, drop) using only the keyboard, and confirm the `aria-live` announcements describe it correctly (§6).
