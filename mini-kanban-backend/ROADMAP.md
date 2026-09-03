@@ -18,8 +18,8 @@ npx @nestjs/cli new . --package-manager npm --skip-git
 > If the CLI refuses because the folder isn't empty, scaffold into a temp dir and move everything in:
 > `npx @nestjs/cli new tmp-api --package-manager npm --skip-git && mv tmp-api/* tmp-api/.[!.]* . && rmdir tmp-api`
 
-- [ ] `npm run start:dev` serves the default Nest hello-world on `:3000`
-- [ ] Change the port to **4000** in `src/main.ts` (3000 belongs to Next.js)
+- [x] `npm run start:dev` serves the default Nest hello-world on `:3000`
+- [x] Change the port to **4000** in `src/main.ts` (3000 belongs to Next.js)
 
 ---
 
@@ -42,7 +42,7 @@ npm i -D prisma @types/passport-jwt @types/cookie-parser @types/bcrypt pino-pret
 > Either build on Debian (`node:20-bookworm-slim`, prebuilds work — this is what Phase 11 does), or swap to
 > `bcryptjs` (pure JS, no toolchain, slightly slower). Don't discover this at Docker-build time on day 4.
 
-- [ ] `npm ls bcrypt` resolves without a build error
+- [x] `npm ls bcrypt` resolves without a build error
 
 ---
 

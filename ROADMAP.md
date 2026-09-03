@@ -29,7 +29,7 @@ git add .gitmodules mini-kanban-backend mini-kanban-frontend
 git commit -m "chore: vendor frontend and backend as directories in the single submission repo"
 ```
 
-- [ ] `git clone <url> fresh && ls fresh/mini-kanban-backend` shows real files — verify with an actual fresh clone, not by assumption
+- [x] `git clone <url> fresh && ls fresh/mini-kanban-backend` shows real files — verify with an actual fresh clone, not by assumption
 
 > Keeping submodules is defensible only if you have a reason. If you do: the README's **first**
 > command must be `git clone --recurse-submodules …`, with `git submodule update --init --recursive`
@@ -39,8 +39,8 @@ git commit -m "chore: vendor frontend and backend as directories in the single s
 
 ## Phase 1 — Root scaffolding (~20 min)
 
-- [ ] Root `.gitignore` — `.env`, `node_modules`, `.next`, `dist`
-- [ ] Root `.env.example` (committed) and `.env` (never committed):
+- [x] Root `.gitignore` — `.env`, `node_modules`, `.next`, `dist`
+- [x] Root `.env.example` (committed) and `.env` (never committed):
 
 ```bash
 POSTGRES_USER=kanban
