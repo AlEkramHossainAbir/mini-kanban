@@ -19,8 +19,8 @@ npx create-next-app@14 . --typescript --tailwind --eslint --app --src-dir --impo
 > animation libraries still hit peer-dependency friction. In a 4-day build you cannot afford
 > dependency archaeology — the assessment asks for Next.js, not for the newest Next.js.
 
-- [ ] `npm run dev` serves the starter page on `:3000`
-- [ ] Delete the boilerplate hero markup in `src/app/page.tsx`
+- [x] `npm run dev` serves the starter page on `:3000`
+- [x] Delete the boilerplate hero markup in `src/app/page.tsx`
 
 ---
 
