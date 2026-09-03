@@ -136,6 +136,7 @@ model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  boardId    String   // denormalized, not a FK — survives board deletion so the audit trail isn't lost, and is the column §7's board-based partitioning actually shards on
   action     String   // e.g. "BOARD_SHARE", "MEMBER_REMOVE", "ROLE_CHANGE"
   entityType String
   entityId   String
@@ -144,6 +145,7 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([userId])
+  @@index([boardId, createdAt])
 }
 ```
 
@@ -162,7 +164,7 @@ Rejected approach: an integer `position` column renumbered on every move — tha
 
 ### Pagination strategy
 
-- **Boards list** (`GET /boards`) — **cursor-based**, on a composite `(createdAt, id)` cursor: `?cursor=<base64>&limit=20`, query shaped as `WHERE (createdAt, id) < (cursor.createdAt, cursor.id) ORDER BY createdAt DESC, id DESC LIMIT 20`. A user's board list (own + shared) grows without bound over time; offset pagination would need to scan-and-discard rows on every page and can skip/duplicate rows when boards are created or deleted between page fetches. Cursor pagination avoids both problems and stays O(limit) at any depth.
+- **Boards list** (`GET /boards`) — **cursor-based**, on a composite `(createdAt, id)` cursor: `?cursor=<base64>&limit=20`, query shaped as `WHERE (createdAt, id) < (cursor.createdAt, cursor.id) ORDER BY createdAt DESC, id DESC LIMIT 20`. A user's board list (own + shared) grows without bound over time; offset pagination would need to scan-and-discard rows on every page and can skip/duplicate rows when boards are created or deleted between page fetches. Cursor pagination avoids both problems. **Caveat:** because access is determined via `BoardMember` (§4) rather than `Board.ownerId`, this is actually a join — `BoardMember.userId = ?` filtered by its index, then joined to `Board` for the `(createdAt, id)` sort — so it's index-driven on the filter side but not fully index-covered end-to-end the way a single-table cursor would be. That's a non-issue at MVP data volumes (a user's board count is small enough to sort in memory) but is called out here rather than overclaiming pure O(limit) at unbounded scale; §7 notes it as one of the things to revisit if per-user board counts ever grow large.
 - **Columns per board** — loaded in full as part of `GET /boards/:id`. Not paginated: a Kanban board has a small, bounded number of columns by definition, and splitting them across pages would break the UI's core assumption that all columns are visible together.
 - **Tasks per column** — loaded in full for the MVP (realistic demo usage is tens of tasks per column, not thousands). The correct approach if columns grow unbounded — cursor pagination on `(rank, id)`, `GET /columns/:id/tasks?cursor=...` — is documented here as the deliberate next step, paired with the caching strategy in §7, rather than built now. This is a scope decision, not an oversight.
 
@@ -312,7 +314,7 @@ This section is explicit forward-looking reasoning, kept separate from the MVP. 
 5. **BullMQ** (Redis-backed) background queue for non-critical/async writes — audit log persistence, share-invite emails, large-board WebSocket fan-out, analytics — moved off the synchronous request path so the move endpoint's latency stays bounded regardless of downstream side effects.
 6. **Horizontal API scaling** — stateless NestJS instances behind a load balancer; REST needs no session affinity (JWT is stateless), Socket.IO needs either sticky sessions or the Redis adapter above.
 7. **CDN** for Next.js static assets (JS bundles, fonts, images) — decouples static asset latency from the app server entirely.
-8. **Indexing review at scale** — the MVP's `(boardId, rank)` / `(columnId, rank)` composite indexes remain correct, but at high cardinality add covering indexes (`INCLUDE`) so list reads are satisfied from the index alone, and periodically review `pg_stat_statements` for sequential scans as new query patterns (search/filter) emerge.
+8. **Indexing review at scale** — the MVP's `(boardId, rank)` / `(columnId, rank)` composite indexes remain correct, but at high cardinality add covering indexes (`INCLUDE`) so list reads are satisfied from the index alone; revisit the boards-list join (§2's caveat) with a denormalized sortable field on `BoardMember` if per-user board counts ever grow large enough for the join-then-sort to matter; and periodically review `pg_stat_statements` for sequential scans as new query patterns (search/filter) emerge.
 9. **Observability** — structured JSON logging (`nestjs-pino`) with request-id correlation, distributed tracing across Next.js → Nest → Postgres/Redis, and p50/p95/p99 metrics specifically on the move endpoint, since it's the highest-frequency, latency- and concurrency-sensitive path and the first place contention will show up.
 
 ---

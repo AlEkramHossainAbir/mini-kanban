@@ -136,6 +136,7 @@ model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  boardId    String   // denormalized, FK নয় — বোর্ড ডিলিট হয়ে গেলেও টিকে থাকে যাতে audit trail হারিয়ে না যায়, এবং এটিই সেই কলাম যার উপর §৭-এর board-based পার্টিশনিং আসলে শার্ড করে
   action     String   // যেমন "BOARD_SHARE", "MEMBER_REMOVE", "ROLE_CHANGE"
   entityType String
   entityId   String
@@ -144,6 +145,7 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([userId])
+  @@index([boardId, createdAt])
 }
 ```
 
@@ -162,7 +164,7 @@ model AuditLog {
 
 ### পেজিনেশন স্ট্র্যাটেজি
 
-- **বোর্ড লিস্ট** (`GET /boards`) — **cursor-based**, `(createdAt, id)` কম্পোজিট কার্সরের উপর: `?cursor=<base64>&limit=20`, কোয়েরি: `WHERE (createdAt, id) < (cursor.createdAt, cursor.id) ORDER BY createdAt DESC, id DESC LIMIT 20`। একজন ইউজারের বোর্ড লিস্ট (নিজের + শেয়ার করা) সময়ের সাথে সীমাহীনভাবে বাড়ে; offset পেজিনেশনে প্রতিটি পেজে scan-and-discard করতে হয় এবং পেজ ফেচের মাঝে বোর্ড তৈরি/মুছে গেলে row skip/duplicate হতে পারে। Cursor পেজিনেশন এই দুটো সমস্যাই এড়ায় এবং যেকোনো গভীরতায় O(limit) থাকে।
+- **বোর্ড লিস্ট** (`GET /boards`) — **cursor-based**, `(createdAt, id)` কম্পোজিট কার্সরের উপর: `?cursor=<base64>&limit=20`, কোয়েরি: `WHERE (createdAt, id) < (cursor.createdAt, cursor.id) ORDER BY createdAt DESC, id DESC LIMIT 20`। একজন ইউজারের বোর্ড লিস্ট (নিজের + শেয়ার করা) সময়ের সাথে সীমাহীনভাবে বাড়ে; offset পেজিনেশনে প্রতিটি পেজে scan-and-discard করতে হয় এবং পেজ ফেচের মাঝে বোর্ড তৈরি/মুছে গেলে row skip/duplicate হতে পারে। Cursor পেজিনেশন এই দুটো সমস্যাই এড়ায়। **সতর্কতা:** যেহেতু অ্যাক্সেস নির্ধারিত হয় `BoardMember`-এর (§৪) মাধ্যমে, `Board.ownerId` দিয়ে নয়, তাই এটি আসলে একটি join — `BoardMember.userId = ?` তার ইনডেক্স দিয়ে ফিল্টার হয়, তারপর `(createdAt, id)` সর্টের জন্য `Board`-এর সাথে join হয় — অর্থাৎ ফিল্টার দিকটা ইনডেক্স-চালিত হলেও, একটি single-table কার্সরের মতো এন্ড-টু-এন্ড পুরোপুরি ইনডেক্স-কভার্ড নয়। MVP ডেটা ভলিউমে এটি কোনো সমস্যা নয় (একজন ইউজারের বোর্ড সংখ্যা memory-তে সর্ট করার জন্য যথেষ্ট ছোট), কিন্তু সীমাহীন স্কেলে বিশুদ্ধ O(limit) দাবি করার বদলে এখানে স্পষ্টভাবে উল্লেখ করা হলো; পার-ইউজার বোর্ড সংখ্যা কখনো বড় হয়ে গেলে এটি পুনর্বিবেচনার জন্য §৭-এ চিহ্নিত করা আছে।
 - **প্রতি বোর্ডে কলাম** — `GET /boards/:id`-এর অংশ হিসেবে সম্পূর্ণ লোড হয়। পেজিনেট করা হয় না: একটি Kanban বোর্ডে কলামের সংখ্যা স্বভাবতই ছোট ও সীমাবদ্ধ, এবং এগুলোকে পেজে ভাগ করলে UI-এর মূল ধারণাই (সব কলাম একসাথে দৃশ্যমান) ভেঙে যাবে।
 - **প্রতি কলামে টাস্ক** — MVP-তে সম্পূর্ণ লোড হয় (বাস্তবসম্মত ডেমো ব্যবহারে প্রতি কলামে কয়েক ডজন টাস্ক, হাজার নয়)। কলামের আকার সীমাহীনভাবে বাড়লে সঠিক অ্যাপ্রোচ — `(rank, id)`-এর উপর cursor পেজিনেশন, `GET /columns/:id/tasks?cursor=...` — এখানে ইচ্ছাকৃত পরবর্তী ধাপ হিসেবে ডকুমেন্ট করা হয়েছে, §৭-এর ক্যাশিং স্ট্র্যাটেজির সাথে জোড়া লাগিয়ে, কিন্তু এখনই বানানো হচ্ছে না। এটি একটি সচেতন স্কোপ সিদ্ধান্ত, ভুলবশত বাদ পড়া নয়।
 
@@ -312,7 +314,7 @@ Polling-এর বদলে WebSocket বেছে নেওয়া হয়�
 ৫. **BullMQ** (Redis-ভিত্তিক) ব্যাকগ্রাউন্ড কিউ non-critical/asynchronous write-এর জন্য — audit log সংরক্ষণ, শেয়ার-ইনভাইট ইমেইল, বড় বোর্ডের WebSocket fan-out, অ্যানালিটিক্স — এগুলোকে সিঙ্ক্রোনাস রিকোয়েস্ট পাথ থেকে সরিয়ে নেওয়া হয়, যাতে ডাউনস্ট্রিম সাইড-ইফেক্ট যাই হোক না কেন move এন্ডপয়েন্টের লেটেন্সি সীমাবদ্ধ থাকে।
 ৬. **হরাইজন্টাল API স্কেলিং** — লোড ব্যালান্সারের পেছনে stateless NestJS instance; REST-এ session affinity লাগে না (JWT stateless), Socket.IO-তে sticky session অথবা উপরের Redis adapter লাগে।
 ৭. Next.js স্ট্যাটিক অ্যাসেটের (JS bundle, ফন্ট, ছবি) জন্য **CDN** — স্ট্যাটিক অ্যাসেট লেটেন্সিকে অ্যাপ সার্ভার থেকে সম্পূর্ণ আলাদা করে দেয়।
-৮. **বড় স্কেলে ইনডেক্সিং রিভিউ** — MVP-এর `(boardId, rank)` / `(columnId, rank)` কম্পোজিট ইনডেক্স সঠিকই থাকে, তবে উচ্চ cardinality-তে covering index (`INCLUDE`) যোগ করা, যাতে list read শুধু ইনডেক্স থেকেই পূরণ হয়, এবং নতুন কোয়েরি প্যাটার্ন (সার্চ/ফিল্টার) তৈরি হলে `pg_stat_statements`-এ sequential scan নিয়মিত রিভিউ করা।
+৮. **বড় স্কেলে ইনডেক্সিং রিভিউ** — MVP-এর `(boardId, rank)` / `(columnId, rank)` কম্পোজিট ইনডেক্স সঠিকই থাকে, তবে উচ্চ cardinality-তে covering index (`INCLUDE`) যোগ করা, যাতে list read শুধু ইনডেক্স থেকেই পূরণ হয়; পার-ইউজার বোর্ড সংখ্যা কখনো join-then-sort-কে গুরুত্বপূর্ণ করে তুলার মতো বড় হয়ে গেলে বোর্ড-লিস্ট join-টি (§২-এর সতর্কতা) `BoardMember`-এ একটি denormalized সর্টেবল ফিল্ড দিয়ে পুনর্বিবেচনা করা; এবং নতুন কোয়েরি প্যাটার্ন (সার্চ/ফিল্টার) তৈরি হলে `pg_stat_statements`-এ sequential scan নিয়মিত রিভিউ করা।
 ৯. **অবজারভেবিলিটি** — request-id correlation-সহ structured JSON logging (`nestjs-pino`), Next.js → Nest → Postgres/Redis জুড়ে distributed tracing, এবং বিশেষভাবে move এন্ডপয়েন্টে p50/p95/p99 মেট্রিক্স, কারণ এটিই সবচেয়ে বেশি-ফ্রিকোয়েন্সি, লেটেন্সি- ও কনকারেন্সি-সংবেদনশীল পথ, যেখানে contention প্রথম দেখা দেবে।
 
 ---
