@@ -1,6 +1,0 @@
-[submodule "mini-kanban-frontend"]
-	path = mini-kanban-frontend
-	url = https://github.com/AlEkramHossainAbir/mini-kanban-frontend.git
-[submodule "mini-kanban-backend"]
-	path = mini-kanban-backend
-	url = https://github.com/AlEkramHossainAbir/mini-kanban-backend.git
