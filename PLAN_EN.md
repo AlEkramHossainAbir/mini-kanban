@@ -1,9 +1,13 @@
 # System Design & Implementation Plan — Mini Kanban Board
 
-**Scope note:** the official assessment (see [ASSESSMENT_EN.md](ASSESSMENT_EN.md)) is a 4-day take-home on a single-instance PostgreSQL stack. It does not ask for sharding or million-user SLAs. This plan is written in two layers on purpose:
+**Scope note:** the official assessment (see [ASSESSMENT_EN.md](ASSESSMENT_EN.md)) is a 4-day take-home on a single-instance PostgreSQL stack. It does not ask for sharding or million-user SLAs. This plan is written in layers on purpose:
 
-- **Sections 1–6, 8** describe what is actually **built for the 4-day submission** — a correct, secure, well-architected MVP on the prescribed stack.
+- **Sections 1–6, 9** describe what is actually **built for the 4-day submission** — a correct, secure, well-architected MVP on the prescribed stack.
 - **Section 7** is a **documented roadmap**, not code to write now — it explains how the same data model evolves toward very large scale (millions of users), so the design decisions made in the MVP (see the callouts) are shown to be compatible with that future, without over-engineering a take-home assessment.
+- **Section 8** states, explicitly rather than by omission, which realistic Kanban-app failure modes are deliberately **out of scope** for the 4-day build and why.
+- **Section 10** is the concrete QA checklist this plan is tested against.
+
+This revision was written after checking the plan against a realistic list of failure modes a newly-built Kanban tool tends to hit in production (reshuffling, jump-back, duplicate/disappearing cards, race conditions, WebSocket ordering, deadlocks, permission leaks, cache stampedes, etc.). Each one is now either already mitigated by a decision below, newly mitigated (marked **(hardening)**), or explicitly scoped out (§8) — nothing is left silently unaddressed.
 
 ---
 
@@ -162,6 +166,10 @@ Rejected approach: an integer `position` column renumbered on every move — tha
 - **Columns per board** — loaded in full as part of `GET /boards/:id`. Not paginated: a Kanban board has a small, bounded number of columns by definition, and splitting them across pages would break the UI's core assumption that all columns are visible together.
 - **Tasks per column** — loaded in full for the MVP (realistic demo usage is tens of tasks per column, not thousands). The correct approach if columns grow unbounded — cursor pagination on `(rank, id)`, `GET /columns/:id/tasks?cursor=...` — is documented here as the deliberate next step, paired with the caching strategy in §7, rather than built now. This is a scope decision, not an oversight.
 
+**(hardening) Column counts are derived, not stored.** The task count shown in a column header (e.g. "In Progress (15)") is always computed client-side from the length of the loaded task array — there is no separate `taskCount` field on `Column` to keep in sync. This structurally avoids counter-drift bugs (stale cache, missed events, soft-delete edge cases) for the MVP. The moment tasks-per-column pagination is added (§7), this stops being free and needs a real answer — a DB-maintained count column updated in the same transaction as any insert/delete, not a value derived from a partial page.
+
+**(hardening) A task cannot move between boards.** `Task.boardId` only ever changes as a side effect of a validated move within the same board (see the cross-board rejection rule in §3) — there is no operation that reassigns a task to a different board's `boardId` independently of its `columnId`. This closes the classic "one field updated, the other one forgotten" consistency bug before it can exist.
+
 ---
 
 ## 3. Task Movement API
@@ -201,6 +209,10 @@ The client sends the **neighbor task ids** it currently sees the dragged task be
 
 The frontend reconciles from `currentTask` without a full board refetch.
 
+### Cross-board move validation (hardening)
+
+Before computing any rank, the service resolves `targetColumnId` → its `boardId` and checks it equals the task's own `boardId` (already established by `BoardAccessGuard`, §4). If they differ, the request fails with `400 Bad Request` (`INVALID_TARGET_COLUMN`) rather than silently reassigning the task to a foreign board. The assessment's own wording only describes moving a task *between columns*, never between boards, so this endpoint structurally cannot do the latter — it's not just unimplemented, it's actively rejected. This also closes a subtler authorization gap: without this check, an `EDITOR` on board A could target a `columnId` belonging to board B and move a task there, even without any access to board B.
+
 ### Concurrency control
 
 Every `Task` carries `version: Int`. A move must include `expectedVersion`; the update is:
@@ -216,9 +228,20 @@ run inside `prisma.$transaction(..., { isolation: Serializable })`. A zero-row m
 
 **This is also what keeps users' work from conflicting with each other:** version-checked writes mean two users' concurrent moves are always resolved explicitly rather than clobbering each other, and every task lives inside exactly one board's authorization scope (§4) — so no user's drag-and-drop can ever touch another user's board in the first place, only the boards they were explicitly given access to.
 
+### Deadlock avoidance (hardening)
+
+Two concurrent moves can never deadlock each other, by construction: a move takes no explicit row locks (`SELECT ... FOR UPDATE` is never used) and only ever writes one row — the dragged task itself — via a single conditional `UPDATE ... WHERE id = ? AND version = ?`. Reading the neighbor tasks' current ranks to compute a midpoint is a plain MVCC snapshot read, not a lock. So two transactions racing on the same column never hold two locks in opposing order and wait on each other — the classic deadlock shape. The one failure mode that *can* happen — `SERIALIZABLE` rejecting a transaction because its computed midpoint would collide with a concurrent one — is a single-transaction abort, not a deadlock, and is already handled by the one-time retry described above.
+
+### Out-of-order response and event protection (hardening)
+
+Rapid dragging (a user moving the same task two or three times in quick succession) can make network responses — and WebSocket `task.moved` events — arrive out of send order. Both the REST response path and the WebSocket path are guarded by the same rule: **never apply anything older than what's already applied.** Concretely:
+- Every outgoing move request is tagged with a per-task, monotonically increasing client-side sequence number. If a response for an older sequence number arrives after a newer one has already been applied, it's discarded.
+- Every `task.moved` WebSocket event carries the task's server-assigned `version`. The client compares it to the version already in its cache for that task id and ignores the event if it isn't strictly newer — closing the exact "Event 2 then Event 1 arrives, UI shows the Event-1 result" failure mode.
+- Because the server itself is the source of truth for `version` and `rank` (not the client's guess), this reduces to a simple last-highest-version-wins rule on the client, with the server's optimistic-concurrency check (above) as the actual authority on what really happened.
+
 ### Real-time sync across connected clients
 
-A `BoardGateway` (NestJS `@WebSocketGateway`, Socket.IO) authenticates the same JWT on connection; clients join a room named `board:<boardId>` when they open a board. After a move commits, `TasksService.move()` emits `task.moved` to that room with the updated task. The frontend reconciles: if the event matches its own in-flight optimistic update it's a no-op, otherwise it patches the query cache directly (§6).
+A `BoardGateway` (NestJS `@WebSocketGateway`, Socket.IO) authenticates the same JWT on connection; clients join a room named `board:<boardId>` when they open a board. **(hardening)** Joining that room is itself authorized, not just the connection: the `join` handler re-runs the same `BoardMember` check as `BoardAccessGuard` (§4) before admitting the socket to the room, and rejects with a socket error otherwise — a valid JWT alone is not enough to listen to a board's events, closing the "WebSocket channel not validated" leak where a user could otherwise receive live updates for a board they have no access to. After a move commits, `TasksService.move()` emits `task.moved` to that room with the updated task. The frontend reconciles: if the event matches its own in-flight optimistic update it's a no-op, otherwise it patches the query cache directly (§6), subject to the version-gating rule above.
 
 This is scoped down for the 4-day build deliberately: a **single Nest instance**, in-memory Socket.IO rooms — correct for one backend container. A Redis Socket.IO adapter for cross-instance pub/sub is the documented next step once the API is horizontally scaled (§7). On (re)connect, the client simply refetches the full board via REST rather than replaying a missed-event log — simple and robust for MVP scope; an events table with monotonic per-board sequence numbers is the correct approach at scale (§7), not built now.
 
@@ -234,6 +257,7 @@ WebSockets were chosen over polling (strictly worse UX for equal or more effort)
 - **`RolesGuard` / `@RequireRole(BoardRole.EDITOR)`** layered on mutation routes — a `VIEWER` gets `403` on any non-GET board/column/task route. `POST /boards/:id/members` (sharing) is `OWNER`-only.
 - **Cross-board access is structurally prevented**, not just checked per-method: every column/task endpoint resolves and authorizes the parent board *before* the service layer runs a single query, so there is no code path that can reach a task belonging to a board the caller was never granted access to (closing the classic IDOR gap where `PATCH /tasks/:id` trusts a bare id).
 - Removing a member with role `OWNER` is rejected unless another `OWNER` exists on the board — a board can never end up ownerless.
+- **(hardening)** This same `BoardMember` check is not REST-only: the WebSocket gateway's room-join handler (§3) re-runs it before admitting a socket to a board's live-update channel, so there is no lower-security side door into a board's data via WebSockets.
 
 ---
 
@@ -264,11 +288,16 @@ WebSockets were chosen over polling (strictly worse UX for equal or more effort)
   3. Fire `PATCH /tasks/:id/move` in the background, having captured the previous cache snapshot.
   4. On success, reconcile with the server's authoritative `rank`/`version` (usually a visual no-op).
   5. On failure (`409` or network error), roll back to the snapshot and surface a toast ("Someone else moved this task — board updated") — the standard TanStack Query `onMutate`/`onError`/`onSettled` optimistic pattern.
+- **(hardening) `cancelQueries` before every optimistic patch.** `onMutate` first calls `queryClient.cancelQueries({ queryKey: ['board', boardId] })` before writing the optimistic state. Without this, an in-flight background refetch (e.g. a stale request from before the drag, or React Query's own refetch-on-focus) can land *after* the optimistic write and silently overwrite it with pre-drag data — this is the concrete mechanism behind "card jumps back even though the move actually succeeded."
+- **(hardening) Every cache write is a keyed upsert, never a wholesale replace.** Moving a task, applying a `task.moved` WebSocket event, and reconciling a mutation response all go through one function that updates a single task by `id` inside the existing cached structure. The board's full state is only ever replaced wholesale by the initial `GET /boards/:id` (or an explicit reconnect resync, §3) — never by a move response or event. This is what prevents both **duplicate cards** (a WS event or retried request would otherwise be appended instead of moved) and **disappearing cards** (a partial/incomplete response would otherwise blank out tasks it didn't mention).
+- **(hardening) Stable identity and a single sort key.** React keys are always `task.id`, never array index. The rendered order of a column's tasks is always `Array.sort` by the `rank` string (with `id` as a tiebreak) and nothing else — no separate client-side reordering logic exists that could disagree with the server's rank, which is the usual root cause of "drag one card, unrelated cards reshuffle."
+- **(hardening) Per-task request sequencing.** Each outgoing move mutation is tagged with a locally incrementing sequence number per task id (§3); an older response arriving after a newer one has already landed is dropped rather than applied, so rapidly dragging the same card two or three times in a row can't leave it in a stale position because of response reordering.
 - **State management: TanStack Query only** for server state — board/column/task data *is* the app's state, kept fresh by REST responses and the WebSocket-driven cache patches from §3. No Redux/Zustand needed at this scope. Local-only UI state (which modal is open, in-progress drag visuals) stays in component state, deliberately kept separate.
 - **Avoiding re-render storms mid-drag:** board data is structured so each `Column` subscribes to its own slice of the cache rather than the whole board re-rendering on every drag frame; `TaskCard` is `React.memo`'d keyed on `id` + `rank`/`version`; `dnd-kit`'s `useSortable` drives the drag gesture itself via CSS transforms, not layout-affecting state, which is what keeps dragging smooth before the drop even commits. Virtualization (`@tanstack/react-virtual`) for very long columns is documented as the natural next step, not built by default since demo-sized boards don't need it.
 - **Loading states:** skeleton placeholders shaped like real columns/cards (Tailwind `animate-pulse`) instead of a blank screen or spinner, driven by TanStack Query's `isLoading`.
 - **Premium feel:** Framer Motion's `layout` prop on task cards for the "other cards glide to make room" reflow effect, paired with plain Tailwind transitions for hover/drag-lift shadow — JS-driven animation only where layout reflow actually needs it, CSS for everything else.
 - **Accessibility:** `dnd-kit`'s `KeyboardSensor` gives keyboard users Tab to focus, Space/Enter to pick up, Arrow keys to move within/across columns, Space/Enter to drop, Escape to cancel — with customized `aria-live` announcements ("Task 'Fix login bug' moved to column 'In Progress', position 2 of 4") via `dnd-kit`'s `announcements` API, so screen-reader users get equivalent functionality, not just mouse users.
+- **(hardening) Mobile/touch drag.** `dnd-kit`'s `PointerSensor` (and `TouchSensor` where finer control is needed) is configured with an activation constraint — a short delay (~150–250ms) and small movement tolerance (~5px) — before a touch is treated as a drag rather than a scroll gesture, so tapping and vertically scrolling a column don't accidentally start a drag. The board's horizontal column-to-column scrolling is its own dedicated scroll container, kept separate from the vertical per-column touch-drag zones, so a horizontal swipe to see more columns doesn't fight with picking up a card.
 
 ---
 
@@ -278,7 +307,7 @@ This section is explicit forward-looking reasoning, kept separate from the MVP. 
 
 1. **Read replicas first.** Kanban board traffic is read-heavy (many views per write). Add streaming-replication read replicas; route `GET` reads to a replica pool and all writes (plus any read requiring strong consistency, like the move endpoint's neighbor-rank read) to the primary. This is the single highest-leverage step, since read volume scales with active users largely independent of write volume.
 2. **Partition/shard by board.** Once a single primary can't absorb write volume, partition `Task`/`Column`/`AuditLog` by `boardId` — Postgres native declarative partitioning, or a Citus-distributed table with `boardId` as the distribution key. This is exactly why `Task.boardId` was denormalized in the MVP schema (§2): it's already the natural shard key with no join required to route a query, and a board's own data never needs a cross-shard transaction, since a task move only ever touches rows within one board.
-3. **Redis caching** of hot/frequently-viewed boards (`board:<id>` → serialized board+columns+tasks), invalidated on the same `task.moved`/`column.updated` events the WebSocket gateway already emits — the cache-invalidation hook piggybacks on infrastructure that already exists. Redis also backs the Socket.IO adapter (`@socket.io/redis-adapter`) required the moment there's more than one API instance, since in-memory Socket.IO rooms (the MVP approach) don't span processes.
+3. **Redis caching** of hot/frequently-viewed boards (`board:<id>` → serialized board+columns+tasks), invalidated on the same `task.moved`/`column.updated` events the WebSocket gateway already emits — the cache-invalidation hook piggybacks on infrastructure that already exists. **Cache-stampede protection**: a single-flight lock per cache key (e.g. a short-lived Redis `SETNX` mutex) ensures that when a hot board's cache entry expires under heavy concurrent read load, only one request repopulates it while the rest wait on or briefly serve the stale value (stale-while-revalidate), rather than all of them hitting Postgres at once; jittered TTLs spread expiry across popular boards so they don't all miss the cache in the same instant. Redis also backs the Socket.IO adapter (`@socket.io/redis-adapter`) required the moment there's more than one API instance, since in-memory Socket.IO rooms (the MVP approach) don't span processes.
 4. **PgBouncer** connection pooling in transaction-pooling mode, once dozens of horizontally-scaled Nest instances would otherwise each hold their own Prisma connection pool and exhaust Postgres's own connection ceiling long before query throughput becomes the bottleneck.
 5. **BullMQ** (Redis-backed) background queue for non-critical/async writes — audit log persistence, share-invite emails, large-board WebSocket fan-out, analytics — moved off the synchronous request path so the move endpoint's latency stays bounded regardless of downstream side effects.
 6. **Horizontal API scaling** — stateless NestJS instances behind a load balancer; REST needs no session affinity (JWT is stateless), Socket.IO needs either sticky sessions or the Redis adapter above.
@@ -288,7 +317,18 @@ This section is explicit forward-looking reasoning, kept separate from the MVP. 
 
 ---
 
-## 8. Project Structure & 4-Day Delivery Plan
+## 8. Explicitly Out of Scope for the 4-Day MVP
+
+Stated here deliberately, so nothing looks like an oversight: these are real Kanban-app concerns that this plan does **not** build in the 4-day submission, and why.
+
+- **Search & filtering.** No search or filter feature is requested anywhere in the assessment. Consequently, neither search-index staleness nor "how do I compute a drop position relative to tasks hidden by an active filter" can arise — there's no filtered view to compute a position within.
+- **Notifications** (push, email, in-app) and their duplicate-delivery risk. Not requested; the MVP has no notification system of any kind, so there is nothing that could fire twice.
+- **Offline support / local-first sync.** A real feature (service worker, local write queue, offline↔online reconciliation) but with no basis in a 4-day single-repo assessment and orthogonal to the scaling roadmap in §7 — deferred entirely rather than half-built.
+- **Tasks-per-column pagination.** Already scoped out in §2 for the MVP (full load per column); restated here for completeness alongside the other cuts.
+
+---
+
+## 9. Project Structure & 4-Day Delivery Plan
 
 **Repository layout** (mapped onto the existing submodules):
 
@@ -326,6 +366,37 @@ mini-kanban/
 **Day-by-day:**
 
 - **Day 1 — Backend foundation.** `nest new` in `mini-kanban-backend`; Prisma schema (§2) + first migration; `PrismaModule`; `AuthModule` (register/login/refresh/logout, bcrypt, JWT strategies, cookie handling); global `ValidationPipe`/`helmet`/CORS/throttler wiring; `docker-compose.yml` with working `db` + `backend`. *Done when:* register/login/refresh/logout works end-to-end against Dockerized Postgres.
-- **Day 2 — Domain CRUD, authorization, move API.** `BoardsModule`/`ColumnsModule`/`TasksModule` full CRUD; `BoardAccessGuard`/`RolesGuard`/`@RequireRole` (§4); board-sharing endpoints; the rank utility (midpoint + rebalance, unit-tested in isolation); `PATCH /tasks/:id/move` with optimistic concurrency (§3); `BoardGateway` emitting `task.moved`. *Done when:* the full API surface is testable via REST client, including a manual two-client concurrency test.
+- **Day 2 — Domain CRUD, authorization, move API.** `BoardsModule`/`ColumnsModule`/`TasksModule` full CRUD; `BoardAccessGuard`/`RolesGuard`/`@RequireRole` (§4); board-sharing endpoints; the rank utility (midpoint + rebalance, unit-tested in isolation); `PATCH /tasks/:id/move` with optimistic concurrency, cross-board rejection, and deadlock-free design (§3); `BoardGateway` emitting `task.moved` with join-time authorization. *Done when:* the full API surface is testable via REST client, including the concurrency/IDOR/cross-board test cases in §10.
 - **Day 3 — Frontend.** `create-next-app` in `mini-kanban-frontend`; Tailwind; auth pages wired to the cookie flow; boards list (cursor pagination); board detail page with columns+tasks; `dnd-kit` integration with optimistic updates (§6); TanStack Query + WebSocket reconciliation; skeleton states; keyboard DnD pass. *Done when:* a real drag-and-drop board works in the browser against the real backend.
-- **Day 4 — Polish, hardening, delivery.** Framer Motion pass; empty/error states; audit-log wiring; security checklist pass against §5; full `docker-compose up --build` smoke test from a clean clone (zero manual steps beyond creating `.env`); finalize root README; optional deploy (e.g. Vercel for frontend + Railway/Render for backend+Postgres) if time remains.
+- **Day 4 — Polish, hardening, delivery.** Framer Motion pass; empty/error states; audit-log wiring; security checklist pass against §5; the full §10 QA checklist run end-to-end; full `docker-compose up --build` smoke test from a clean clone (zero manual steps beyond creating `.env`); finalize root README; optional deploy (e.g. Vercel for frontend + Railway/Render for backend+Postgres) if time remains.
+
+---
+
+## 10. Testing & QA Checklist
+
+A prioritized, actually-runnable-in-4-days set of test cases, aimed at the failure modes real Kanban tools tend to ship with:
+
+**Drag-and-drop correctness**
+- Drag one card and confirm no unrelated card's `rank` or position changes (guards against reshuffle bugs, §6).
+- Rapid-drag the same card three times in a row; confirm it ends up exactly where the last drop placed it, not an intermediate position (§3/§6 out-of-order protection).
+- Force a failed move (e.g. stop the backend mid-drag) and confirm the card rolls back to its pre-drag position with a visible toast, not a silent stuck state (§6).
+
+**Concurrency**
+- Two browser sessions (or two users) move the same task at the same moment; confirm one succeeds and the other gets a `409` with the corrected state, not a silently overwritten result (§3).
+- Two users reorder different tasks in the same column simultaneously; confirm both moves land correctly with no lost update.
+
+**Authorization**
+- From a session with no membership on a board, call `PATCH /tasks/:id` directly (bypassing the UI) for a task on that board; confirm `403`/`404`, not success (IDOR check, §4).
+- Attempt a move with a `targetColumnId` belonging to a different board than the task's own; confirm `400` (§3 cross-board rejection).
+- Connect a WebSocket and attempt to join a `board:<boardId>` room for a board the user has no access to; confirm the join is rejected (§3/§4).
+
+**Real-time sync**
+- Open the same board in two tabs; move a card in one and confirm the other reflects it without a manual refresh.
+- Kill and restore network on one tab mid-session; confirm it resyncs to the correct board state on reconnect rather than showing stale data indefinitely (§3).
+
+**Security**
+- Trip the `/auth/login` rate limit with repeated bad-password attempts; confirm it's throttled (§5).
+- Confirm a logged-out session's refresh token is actually rejected server-side after `POST /auth/logout` (real revocation, §1).
+
+**Accessibility**
+- Complete a full move (pick up, move across columns, drop) using only the keyboard, and confirm the `aria-live` announcements describe it correctly (§6).
