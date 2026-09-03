@@ -63,7 +63,7 @@ npx prisma generate
 npx prisma studio          # eyeball the tables
 ```
 
-- [ ] Commit `prisma/migrations/` — the deploy step replays these, never `db push` *(left for you — migration files are staged/present but not committed, per this repo's workflow rule that commits stay in your hands)*
+- [x] Commit `prisma/migrations/` — the deploy step replays these, never `db push`
 
 ---
 
@@ -73,17 +73,17 @@ npx prisma studio          # eyeball the tables
 
 `src/main.ts` must set all of this up:
 
-- [ ] `app.setGlobalPrefix('api/v1')`
-- [ ] `app.use(cookieParser())`
-- [ ] `app.use(helmet())` (PLAN §5)
-- [ ] `app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))` (PLAN §5 — this is the mass-assignment defence, don't soften it)
-- [ ] `app.enableCors({ origin: process.env.FRONTEND_URL, credentials: true })` — **local dev only**; production runs same-origin behind the Next.js rewrite (PLAN §1)
-- [ ] `app.set('trust proxy', 1)` — without this the throttler sees the load balancer's IP and rate-limits everyone as one client
-- [ ] `app.enableShutdownHooks()`
-- [ ] `ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }])` globally *(v6+ takes an array and `ttl` in **milliseconds**)*
-- [ ] `GET /api/v1/health` → `{ status: 'ok' }`, no auth — Docker healthcheck + Render/Railway probes need it
+- [x] `app.setGlobalPrefix('api/v1')`
+- [x] `app.use(cookieParser())`
+- [x] `app.use(helmet())` (PLAN §5)
+- [x] `app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))` (PLAN §5 — this is the mass-assignment defence, don't soften it)
+- [x] `app.enableCors({ origin: process.env.FRONTEND_URL, credentials: true })` — **local dev only**; production runs same-origin behind the Next.js rewrite (PLAN §1)
+- [x] `app.set('trust proxy', 1)` — without this the throttler sees the load balancer's IP and rate-limits everyone as one client
+- [x] `app.enableShutdownHooks()`
+- [x] `ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }])` globally *(v6+ takes an array and `ttl` in **milliseconds**)*
+- [x] `GET /api/v1/health` → `{ status: 'ok' }`, no auth — Docker healthcheck + Render/Railway probes need it
 
-**Done when:** `curl localhost:4000/api/v1/health` returns 200 with security headers present.
+**Done when:** `curl localhost:4000/api/v1/health` returns 200 with security headers present. ✅ Verified — 200, `{"status":"ok"}`, full helmet header set, CORS + rate-limit headers present.
 
 ---
 
