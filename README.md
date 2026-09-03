@@ -3,24 +3,24 @@
 Root project repository for the **Mini Kanban Board** — a full-stack technical assessment
 submission for **Webbriks**.
 
-This repository ties together the two application repositories as git submodules, plus the
+This is a single repository containing both applications as ordinary directories, plus the
 original assessment document and write-ups describing it in English and Bangla.
 
-## Repositories
+## Applications
 
-| Repo | Description |
+| Directory | Description |
 |------|--------------|
-| [mini-kanban-frontend](https://github.com/AlEkramHossainAbir/mini-kanban-frontend) | Next.js + React (TypeScript) + Tailwind CSS frontend |
-| [mini-kanban-backend](https://github.com/AlEkramHossainAbir/mini-kanban-backend) | NestJS (TypeScript) + PostgreSQL + Prisma backend |
+| [mini-kanban-frontend/](mini-kanban-frontend/) | Next.js + React (TypeScript) + Tailwind CSS frontend |
+| [mini-kanban-backend/](mini-kanban-backend/) | NestJS (TypeScript) + PostgreSQL + Prisma backend |
 
-Both are included here as git submodules under [mini-kanban-frontend/](mini-kanban-frontend/) and
-[mini-kanban-backend/](mini-kanban-backend/).
+Both live in this repository — a plain clone gets you everything.
 
 ```bash
-git clone --recurse-submodules https://github.com/AlEkramHossainAbir/mini-kanban.git
-# or, if already cloned:
-git submodule update --init --recursive
+git clone https://github.com/AlEkramHossainAbir/mini-kanban.git
 ```
+
+> Setup and run instructions (Docker quick start, local dev, sample environment variables) are
+> still to come — see [ROADMAP.md](ROADMAP.md) Phase 4.
 
 ## About the Assessment
 

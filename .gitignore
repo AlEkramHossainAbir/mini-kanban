@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.next/
+
+# Environment — .env.example is committed, real .env files never are
+.env
+.env.local
+.env.*.local
+
+# Claude Code local state (machine-specific permission approvals)
+.claude/settings.local.json
+
+# OS / editor noise
+.DS_Store
+*.log
