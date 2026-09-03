@@ -30,7 +30,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const exceptionResponse = isHttpException ? exception.getResponse() : null;
     const message =
-      exceptionResponse && typeof exceptionResponse === 'object' && 'message' in exceptionResponse
+      exceptionResponse &&
+      typeof exceptionResponse === 'object' &&
+      'message' in exceptionResponse
         ? (exceptionResponse as { message: string | string[] }).message
         : isHttpException
           ? exception.message
@@ -39,7 +41,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (!isHttpException) {
       // Unexpected (non-HttpException) errors are logged with full detail
       // server-side, but never echoed back to the client.
-      this.logger.error(exception instanceof Error ? exception.stack : exception);
+      this.logger.error(
+        exception instanceof Error ? exception.stack : exception,
+      );
     }
 
     response.status(status).json({
