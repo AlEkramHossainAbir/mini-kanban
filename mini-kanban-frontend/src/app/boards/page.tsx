@@ -31,10 +31,10 @@ export default function BoardsPage() {
   const isEmpty = !isLoading && !isError && boards.length === 0;
 
   return (
-    <main className="mx-auto max-w-[1420px] px-[30px] py-8">
+    <main className="mx-auto max-w-[1420px] px-[var(--gutter)] py-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-archivo text-[32px] font-bold leading-[1.1] tracking-[-.022em] text-[#F6EFE3]">
+        <div className="min-w-0">
+          <h1 className="font-archivo text-[26px] font-bold leading-[1.1] tracking-[-.022em] text-[#F6EFE3] sm:text-[32px]">
             Your boards
           </h1>
           <p className="mt-2 font-courier text-[12.5px] text-[rgba(255,240,220,.6)]">

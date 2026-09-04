@@ -59,7 +59,7 @@ export function DragOverlayCard({ task, done }: { task: Task; done: boolean }) {
   return (
     <div
       ref={ref}
-      className="w-[280px] cursor-grabbing"
+      className="w-[var(--col-w)] cursor-grabbing"
       style={{
         transform: "scale(1.05) rotate(var(--tilt, 0deg))",
         // Only alive for the lifetime of the overlay itself, never on a

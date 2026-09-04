@@ -50,15 +50,19 @@ export function BoardHeader({
   const overflow = (members?.length ?? 0) - shown.length;
 
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4 px-[30px] pt-8">
-      <div>
+    <header className="flex flex-wrap items-end justify-between gap-4 px-[var(--gutter)] pt-8">
+      <div className="min-w-0">
         <Link
           href="/boards"
           className="font-courier text-[11px] text-[rgba(255,240,220,.6)] hover:text-[rgba(255,240,220,.85)]"
         >
           ← your boards
         </Link>
-        <h1 className="mt-1 font-archivo text-[32px] font-bold leading-[1.1] tracking-[-.022em] text-[#F6EFE3]">
+        {/* `break-words`, not `truncate`: a board title is user-supplied and
+            a long one on a phone should wrap onto a second line rather than
+            be cut off — the strip below it is the only thing on this screen
+            that is allowed to scroll sideways. */}
+        <h1 className="mt-1 break-words font-archivo text-[26px] font-bold leading-[1.1] tracking-[-.022em] text-[#F6EFE3] sm:text-[32px]">
           {board.title}
         </h1>
         {realtimeStatus && (

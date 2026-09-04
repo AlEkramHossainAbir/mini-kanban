@@ -123,7 +123,7 @@ export function BoardColumn({
   return (
     <div
       ref={setSortableRef}
-      className="relative flex w-[280px] flex-shrink-0 flex-col"
+      className="relative flex w-[var(--col-w)] flex-shrink-0 flex-col"
       aria-busy={pending || undefined}
       style={{
         opacity: isDragging ? 0.4 : pending ? 0.6 : undefined,
@@ -219,7 +219,13 @@ export function BoardColumn({
             : "linear-gradient(rgba(215,192,151,.26),rgba(215,192,151,.16))",
           borderColor: isOver ? "rgba(255,255,255,.42)" : "rgba(255,255,255,.22)",
           minHeight: 218,
-          maxHeight: "calc(100vh - 300px)",
+          // `dvh`, not `vh`: on mobile Safari/Chrome `vh` is the *largest*
+          // viewport, so with the URL bar showing the tray's own scroll
+          // container ran past the bottom of the screen and the composer at
+          // its foot was unreachable. `max()` keeps a short landscape phone
+          // (where `100dvh - 300px` goes near zero) from collapsing the tray
+          // to a sliver — below that floor the strip scrolls instead.
+          maxHeight: "max(220px, calc(100dvh - 300px))",
           overflowY: "auto",
         }}
       >

@@ -79,7 +79,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
     <main className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-[380px]">
         <header className="mb-6">
-          <h1 className="font-archivo text-[32px] font-bold leading-[1.1] tracking-[-.022em] text-[#F6EFE3]">
+          <h1 className="font-archivo text-[26px] font-bold leading-[1.1] tracking-[-.022em] text-[#F6EFE3] sm:text-[32px]">
             {isRegister ? "Open a new drawer" : "Back to the filing room"}
           </h1>
           <p className="mt-2 font-courier text-[12.5px] text-[rgba(255,240,220,.6)]">

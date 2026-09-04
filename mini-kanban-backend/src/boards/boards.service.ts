@@ -7,6 +7,7 @@ import { BoardRole, Prisma } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../audit/audit.actions';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { between, first, last } from '../tasks/rank.util';
 import { decodeCursor, encodeCursor } from './cursor.util';
 import { AddMemberDto } from './dto/add-member.dto';
 import { CreateBoardDto } from './dto/create-board.dto';
@@ -23,6 +24,16 @@ const MEMBER_SELECT = {
 type MemberView = Prisma.BoardMemberGetPayload<{
   select: typeof MEMBER_SELECT;
 }>;
+
+/**
+ * Columns a brand-new board opens with, in order. The brief only ever
+ * requires that columns be *manageable* (create/rename/delete/reorder all
+ * still work on these, they are ordinary rows with no special flag) — this
+ * exists so a fresh board isn't an empty strip on first load. "Done" is
+ * spelled exactly that way on purpose: the frontend derives a column's tab
+ * colour and its cards' struck-through treatment from that literal title.
+ */
+const DEFAULT_COLUMN_TITLES = ['To Do', 'Done'] as const;
 
 @Injectable()
 export class BoardsService {
@@ -42,6 +53,16 @@ export class BoardsService {
       await tx.boardMember.create({
         data: { boardId: board.id, userId: ownerId, role: BoardRole.OWNER },
       });
+      // Seeded in the same transaction for the same reason as the membership
+      // row: a board is never observable in a half-built state. Ranks are
+      // computed the way ColumnsService.create computes them — successive
+      // midpoints toward the max sentinel — so a later `POST /columns` files
+      // itself after these without any special case.
+      let rank = first();
+      for (const title of DEFAULT_COLUMN_TITLES) {
+        rank = between(rank, last());
+        await tx.column.create({ data: { boardId: board.id, title, rank } });
+      }
       return board;
     });
   }

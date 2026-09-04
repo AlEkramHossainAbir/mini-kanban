@@ -139,9 +139,16 @@ describe('Authorization (e2e)', () => {
         .get(`/api/v1/boards/${boardId}`)
         .expect(200);
       expect(board.body.title).toBe('Private board');
-      expect(board.body.columns).toHaveLength(1);
-      expect(board.body.columns[0].tasks).toHaveLength(1);
-      expect(board.body.columns[0].tasks[0].title).toBe('Secret task');
+      // Two seeded default columns plus the "Todo" this suite adds; the
+      // assertion is by id, not index, so it says nothing about how many
+      // columns a fresh board happens to open with.
+      const column = board.body.columns.find(
+        (c: { id: string }) => c.id === columnId,
+      );
+      expect(column).toBeDefined();
+      expect(column.tasks).toHaveLength(1);
+      expect(column.tasks[0].title).toBe('Secret task');
+      expect(board.body.columns).toHaveLength(3);
     });
 
     it('never lists a board it has no membership on', async () => {

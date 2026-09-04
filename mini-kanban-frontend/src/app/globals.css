@@ -26,6 +26,20 @@
   /* motion */
   --ease:cubic-bezier(.22,.85,.28,1);
   --ease-settle:cubic-bezier(.16,1.24,.4,1);
+  /* layout — DESIGN §4.1's 280px column and 30px page gutter, held exactly
+     from `sm` (640px) up. Below that they are the two numbers that decide
+     whether a phone can read the board at all, so they are tokens rather
+     than literals: every column, skeleton, drag overlay and page gutter in
+     the app reads them, and the responsive rule lives here once instead of
+     as a breakpoint sprinkled across six components. `min()` means the
+     desktop value is still literally 280px at any viewport ≥ 359px — the
+     narrowing only ever engages on a real phone. */
+  --col-w:min(280px, 78vw);
+  --gutter:16px;
+}
+
+@media (min-width:640px){
+  :root{ --gutter:30px; }
 }
 
 body{

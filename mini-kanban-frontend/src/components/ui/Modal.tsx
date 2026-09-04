@@ -119,6 +119,12 @@ export function Modal({
               transition={{ duration: 0.3, ease: [0.22, 0.85, 0.28, 1] }}
               className={cn(
                 "on-paper relative w-full max-w-md rounded-[4px] border border-card-edge bg-card p-5",
+                // The panel, not the page, absorbs an overflowing dialog: the
+                // body is locked above, so without this a tall modal (Share
+                // with a long member list, Edit task with a long description)
+                // had its buttons off the bottom of a phone screen with no
+                // way to reach them.
+                "max-h-[calc(100dvh-2rem)] overflow-y-auto",
                 "shadow-[0_28px_46px_-18px_rgba(18,12,6,.66)]",
                 className
               )}

@@ -14,7 +14,7 @@ export function ColumnDragOverlay({ column }: { column: Column }) {
 
   return (
     <div
-      className="w-[280px] cursor-grabbing rounded-tab shadow-lift"
+      className="w-[var(--col-w)] cursor-grabbing rounded-tab shadow-lift"
       style={{
         background: `linear-gradient(${from},${to})`,
         clipPath: "polygon(0 0, calc(100% - 11px) 0, 100% 100%, 0 100%)",

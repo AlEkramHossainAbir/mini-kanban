@@ -160,7 +160,7 @@ export default function BoardPage({ params }: { params: { id: string } }) {
   if (isLoading) {
     return (
       <div>
-        <div className="px-[30px] pt-8">
+        <div className="px-[var(--gutter)] pt-8">
           <div className="h-3.5 w-24 animate-pulse rounded-[2px] bg-[rgba(255,255,255,.12)]" />
           <div className="mt-2 h-9 w-72 animate-pulse rounded-[2px] bg-[rgba(255,255,255,.12)]" />
         </div>
@@ -174,7 +174,7 @@ export default function BoardPage({ params }: { params: { id: string } }) {
     const notYours = status === 403 || status === 404;
 
     return (
-      <div className="mx-auto max-w-[560px] px-[30px] py-16 text-center">
+      <div className="mx-auto max-w-[560px] px-[var(--gutter)] py-16 text-center">
         <p className="font-archivo text-[18px] font-bold text-[#F6EFE3]">
           {notYours ? "This board isn't available" : "Could not load this board"}
         </p>
@@ -254,7 +254,7 @@ export default function BoardPage({ params }: { params: { id: string } }) {
             because a column's own drag-handle id is prefixed (`columnSortId`,
             `useBoardDnd`), so there's no id collision between the two
             contexts. */}
-        <div className="mt-6 flex gap-[14px] overflow-x-auto px-[30px] pb-8">
+        <div className="mt-6 flex gap-[14px] overflow-x-auto px-[var(--gutter)] pb-8">
           <SortableContext
             items={columns.map((c) => columnSortId(c.id))}
             strategy={horizontalListSortingStrategy}

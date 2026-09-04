@@ -10,7 +10,7 @@ export function Header() {
   const logout = useLogout();
 
   return (
-    <header className="flex items-center justify-between border-b border-[rgba(255,255,255,.1)] px-5 py-3">
+    <header className="flex items-center justify-between gap-3 border-b border-[rgba(255,255,255,.1)] px-[var(--gutter)] py-3">
       <Link
         href="/boards"
         className="font-archivo text-[15px] font-bold tracking-[-.01em] text-[#F6EFE3]"
@@ -23,9 +23,12 @@ export function Header() {
           <span className="h-7 w-24 animate-pulse rounded-[3px] bg-[rgba(255,255,255,.12)]" />
         ) : user ? (
           <>
-            <span className="flex items-center gap-2">
+            {/* The avatar already carries the identity on a phone; the name
+                beside it is the first thing to go, since it is what pushes
+                "Log out" off a 360px viewport. */}
+            <span className="flex min-w-0 items-center gap-2">
               <Avatar name={user.name} />
-              <span className="font-archivo text-[12.5px] text-[rgba(255,240,220,.85)]">
+              <span className="hidden truncate font-archivo text-[12.5px] text-[rgba(255,240,220,.85)] sm:inline">
                 {user.name}
               </span>
             </span>

@@ -37,7 +37,7 @@ export function AddColumnButton({ boardId }: { boardId: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-9 w-[280px] flex-shrink-0 items-center justify-center gap-1.5 self-start rounded-[6px] border-[1.5px] border-dashed border-[rgba(255,247,230,.3)] font-archivo text-[12px] font-bold uppercase tracking-[.1em] text-[rgba(255,247,230,.6)] transition-colors duration-hover hover:border-[rgba(255,247,230,.5)] hover:text-[rgba(255,247,230,.85)]"
+        className="flex h-9 w-[var(--col-w)] flex-shrink-0 items-center justify-center gap-1.5 self-start rounded-[6px] border-[1.5px] border-dashed border-[rgba(255,247,230,.3)] font-archivo text-[12px] font-bold uppercase tracking-[.1em] text-[rgba(255,247,230,.6)] transition-colors duration-hover hover:border-[rgba(255,247,230,.5)] hover:text-[rgba(255,247,230,.85)]"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden />
         add column
@@ -46,7 +46,7 @@ export function AddColumnButton({ boardId }: { boardId: string }) {
   }
 
   return (
-    <div className="flex w-[280px] flex-shrink-0 flex-col gap-2 self-start">
+    <div className="flex w-[var(--col-w)] flex-shrink-0 flex-col gap-2 self-start">
       <input
         ref={ref}
         autoFocus

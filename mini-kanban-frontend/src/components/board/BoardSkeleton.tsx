@@ -7,9 +7,9 @@ import { Skeleton } from "@/components/ui";
  *  without pretending to know the real column count before it loads. */
 export function BoardSkeleton() {
   return (
-    <div className="flex gap-[14px] overflow-x-auto px-[30px] pb-8 pt-6">
+    <div className="flex gap-[14px] overflow-x-auto px-[var(--gutter)] pb-8 pt-6">
       {[0, 1, 2].map((c) => (
-        <div key={c} className="flex w-[280px] flex-shrink-0 flex-col" aria-hidden>
+        <div key={c} className="flex w-[var(--col-w)] flex-shrink-0 flex-col" aria-hidden>
           <Skeleton className="h-[26px] w-[120px] rounded-tab" />
           <div
             className="-mt-px flex flex-col gap-[11px] rounded-tray border border-[rgba(255,255,255,.18)] p-3"
