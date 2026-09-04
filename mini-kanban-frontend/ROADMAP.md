@@ -89,8 +89,31 @@ module.exports = {
 };
 ```
 
-- [ ] `BACKEND_URL` is a **server-side** variable (`http://localhost:4000` locally, the service name `http://backend:4000` in Docker) — deliberately *not* `NEXT_PUBLIC_*`
-- [ ] All app code calls **relative** paths: `fetch('/api/v1/boards', { credentials: 'include' })`
+- [x] `next.config.mjs` — `output: 'standalone'` + the `/api/v1/:path*` rewrite. Kept as **`.mjs`**
+      (the scaffold's format) rather than the snippet's `.js`, and exported in Next's **function
+      form** — `process.env.NEXT_PHASE` is `undefined` when Next 14 loads the config (probed, not
+      assumed), so the build phase is only reachable via the function argument.
+- [x] `BACKEND_URL` is a **server-side** variable (`http://localhost:4000` locally, the service name `http://backend:4000` in Docker) — deliberately *not* `NEXT_PUBLIC_*`.
+      Confirmed server-side: after a build with a sentinel value, **0 files** under `.next/static`
+      contain it.
+- [x] **⚠️ `BACKEND_URL` is baked at BUILD time, not read at run time** — verified, and it directly
+      threatens root Phase 3's "zero manual steps" acceptance. Next serialises rewrite destinations
+      into `.next/routes-manifest.json` during `next build`; the standalone server reads that
+      manifest and never re-reads the variable. Proved by building with a sentinel
+      `http://baked-at-build-time:9999`, then starting with `BACKEND_URL=http://localhost:4000`:
+      the manifest kept the sentinel and `/api/v1/health` returned **500**.
+      **→ Phase 12's Dockerfile must pass `BACKEND_URL` as a build `ARG`**, not via compose's
+      run-time `env_file:`. `next.config.mjs` now prints a loud build-time warning when it is unset
+      (a warning, not a throw, so the Phase 12 image can still build).
+- [x] All app code calls **relative** paths: `fetch('/api/v1/boards', { credentials: 'include' })`
+      — standing rule; no fetch code exists yet, and `src/lib/api.ts` (Phase 3) is where it starts.
+- [x] **Verified end to end** against the real backend on `:4000`: `/api/v1/health` → `200
+      {"status":"ok"}` through `:3000`; `/api/v1/boards` unauthenticated → **401 from Nest** (not a
+      Next 404, proving the rewrite reaches the API); `/api/v2/health` → 404, so only the intended
+      prefix is proxied. **The cookie test that is the whole point of this phase**: login through
+      `:3000` returned `mk_at` (`Path=/`) and `mk_rt` (`Path=/api/v1/auth/refresh`), both
+      `HttpOnly; SameSite=Lax`, scoped to the `:3000` origin — and `GET /auth/me` + `GET /boards`
+      through the proxy then returned `200` with real data.
 
 > **Why this matters (PLAN §1):** the browser must only ever see one origin. `SameSite=Lax` cookies
 > are not sent cross-site, so pointing the browser straight at a Railway/Vercel-split API would work
@@ -98,6 +121,9 @@ module.exports = {
 > As a bonus, nothing about the API URL gets baked into the client bundle at build time.
 
 - [ ] Tailwind: set your palette + a `--radius` token in `tailwind.config.ts` now, so "premium" isn't a day-4 retrofit
+      *(deferred to Phase 3, which owns `tailwind.config.ts` and re-lists this same item — the full
+      `DESIGN §2` colour/radius/shadow/easing set lands there in one pass rather than being
+      half-applied here and rewritten a phase later.)*
 
 ---
 
@@ -280,7 +306,12 @@ EXPOSE 3000
 CMD ["node","server.js"]
 ```
 
-- [ ] `output: 'standalone'` is set (Phase 2)
+- [x] `output: 'standalone'` is set (Phase 2) — `.next/standalone/server.js` confirmed present
+- [ ] **`ARG BACKEND_URL` before `npm run build`** (`ARG BACKEND_URL` + `ENV BACKEND_URL=$BACKEND_URL`).
+      The Dockerfile snippet above does **not** do this yet and must be amended: the rewrite target
+      is frozen into `routes-manifest.json` at build time (proved in Phase 2), so an image built
+      without it bakes `http://localhost:4000` and every API call inside the container 502s, no
+      matter what compose sets at run time. Compose must pass it via `build: args:`, not `env_file:`.
 - [ ] `.dockerignore`: `node_modules`, `.next`, `.env*`, `.git`
 
 ---

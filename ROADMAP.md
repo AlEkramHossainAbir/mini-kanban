@@ -99,7 +99,15 @@ services:
     ports: ["4000:4000"]
 
   frontend:
-    build: ./mini-kanban-frontend
+    # BACKEND_URL must arrive as a BUILD ARG, not only through env_file — Next bakes
+    # the /api/v1 rewrite destination into routes-manifest.json at build time and
+    # never re-reads it at run time (verified in frontend ROADMAP Phase 2). Without
+    # this, the image bakes http://localhost:4000 and every API call in the
+    # container 502s.
+    build:
+      context: ./mini-kanban-frontend
+      args:
+        BACKEND_URL: ${BACKEND_URL}
     env_file: .env
     depends_on: [backend]
     ports: ["3000:3000"]
