@@ -26,3 +26,22 @@ export const registerSchema = z.object({
 
 export type LoginValues = z.infer<typeof loginSchema>;
 export type RegisterValues = z.infer<typeof registerSchema>;
+
+/**
+ * Mirrors CreateBoardDto (backend src/boards/dto/create-board.dto.ts):
+ * title 1..200, description optional and ≤2000.
+ */
+export const createBoardSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, "Give the board a name")
+    .max(200, "Name must be 200 characters or fewer"),
+  description: z
+    .string()
+    .trim()
+    .max(2000, "Description must be 2000 characters or fewer")
+    .optional(),
+});
+
+export type CreateBoardValues = z.infer<typeof createBoardSchema>;

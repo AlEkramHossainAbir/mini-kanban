@@ -194,11 +194,56 @@ a built board is how a design direction quietly turns into "close enough".
 
 ## Phase 5 — Boards list (~1.5 h) · *Day 3*
 
-- [ ] `GET /api/v1/boards` via `useInfiniteQuery`, cursor from the response (PLAN §2)
-- [ ] "Load more" button (not auto-infinite-scroll — cheaper and more predictable)
-- [ ] Create-board modal with optimistic insert
-- [ ] Empty state: an illustration + a single primary "Create your first board" CTA, never a blank screen
-- [ ] Skeleton cards while `isLoading`
+- [x] `GET /api/v1/boards` via `useInfiniteQuery`, cursor from the response (PLAN §2) —
+      `src/lib/boards.ts`. The cursor stays opaque: the hook only ever hands the previous page's
+      `nextCursor` back, never parses it, and `getNextPageParam` returns `null` to stop.
+- [x] "Load more" button (not auto-infinite-scroll — cheaper and more predictable), hidden as soon
+      as `hasNextPage` is false
+- [x] Create-board modal with optimistic insert — `useCreateBoard` follows PLAN §6's two rules
+      even though this isn't the board: **`cancelQueries` first** (a background refetch landing
+      after the optimistic write would make the new board blink out and back), and **swap the
+      temp id for the real row in place, never append** (appending is the duplicate-card bug
+      arriving through the create path). Deliberately **no invalidation** afterwards — refetching
+      would re-page the whole list behind cursors that have already shifted, for a row the swap
+      has already made authoritative.
+- [x] Empty state: an illustration + a single primary "Create your first board" CTA, never a blank
+      screen. The illustration is inline SVG drawn from the §2 tokens — no icon or illustration
+      dependency (`DESIGN §8`). The "New board" button in the header is hidden while the list is
+      empty, so exactly one CTA is on screen.
+- [x] Skeleton cards while `isLoading` — tab + ruled card body matching `BoardCard`'s silhouette
+      (`DESIGN §4.7`), never a spinner
+
+Two things worth stating:
+
+- **`POST /boards` returns no `role`.** Verified against the running API: the create response is
+  the bare board row, while every `GET /boards` row carries the caller's `role`. The optimistic
+  insert therefore supplies `OWNER` itself, which is sound because the board and its OWNER
+  membership are written in one transaction server-side (PLAN §4) — there is no state in which
+  the creator is anything else.
+- **The boards list isn't specified in `DESIGN.md`**, so per §1 it is derived from the same
+  tokens: each board is a closed folder — the angle-cut manila tab of §4.2 over an index-card
+  body from §4.4, with the role on the `filed` label. Hover follows §5 exactly (1px lift on
+  `transform`; the shadow blooms as the **opacity** of an `::after` layer, not a `box-shadow`
+  transition).
+
+**Verified in a real browser** (headless Chrome over CDP, against the built app and the live
+backend) — **26 checks, all passing**, each run provisioning its own account so the run is
+idempotent: empty state renders with its illustration and exactly one CTA; the CTA opens the
+modal with focus moved inside; an empty title is blocked client-side and creates nothing; Esc
+closes the modal; a real create paints the new row in **15 ms**, `aria-busy` and *not* a link
+while pending, labelled `filing…`, then the server's row **replaces it in place** — one row, not
+two, with a real uuid href and the OWNER label; at a genuine 22-board boundary page 1 renders
+exactly 20 newest-first with "Load more", clicking it appends to 22 with **no duplicated or
+skipped rows across the cursor** and the button disappears; under a throttled network the loading
+state is skeletons and **zero** spinners; and with `/api/v1/boards` blocked the page shows the
+error + "Try again", not the empty state. `npx tsc --noEmit`, `npm run lint` and `npm run build`
+all clean.
+
+> **Budget note for Phase 11** (recorded, not fixed here): `/boards` builds to **205 kB** First
+> Load JS. `DESIGN §8`'s < 200KB budget is written against `/boards/[id]`, which does not exist
+> yet and will add `dnd-kit` on top of this baseline — so the Phase 11 perf pass starts already
+> over. The shared baseline is 87.3 kB and `/login` alone is 198 kB, so the weight is in the
+> common chunk (framer-motion + sonner + react-hook-form + zod), not in this page's 6.28 kB.
 
 ---
 
