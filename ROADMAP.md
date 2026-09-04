@@ -127,14 +127,17 @@ volumes:
 
 The graded deliverable. Structure:
 
-- [ ] One-paragraph description + screenshot/GIF of a drag in progress
-- [ ] **Quick start** — the three commands from Phase 3's acceptance test, verbatim
-- [ ] Local dev without Docker — per-project `npm install` / `npm run dev`, plus the standalone Postgres container command
-- [ ] **Sample environment variables** — the full block from Phase 1, explicitly required by the brief
-- [ ] API endpoint table (copy from PLAN §3)
-- [ ] Architecture summary: the rank-key ordering, optimistic concurrency (`version` + `409`), role-based board access — 3 short paragraphs linking to `PLAN_EN.md` for depth
-- [ ] Live demo link (if deployed) + test credentials
-- [ ] What's intentionally out of scope, linking to PLAN §8 — this reads as judgment, not as gaps
+- [x] One-paragraph description + screenshot/GIF of a drag in progress — `docs/board-drag.png`,
+      captured live against the running dev stack (Playwright: registered a demo user, seeded a
+      real board/columns/tasks via the API, mid-drag screenshot of the tilted `DragOverlay` card),
+      not a mockup
+- [x] **Quick start** — the three commands from Phase 3's acceptance test, verbatim
+- [x] Local dev without Docker — per-project `npm install` / `npm run dev`, plus the standalone Postgres container command
+- [x] **Sample environment variables** — the full block from Phase 1, explicitly required by the brief
+- [x] API endpoint table (copy from PLAN §3)
+- [x] Architecture summary: the rank-key ordering, optimistic concurrency (`version` + `409`), role-based board access — 3 short paragraphs linking to `PLAN_EN.md` for depth
+- [x] Live demo link (if deployed) + test credentials — not deployed yet; states so plainly and links to Phase 5 rather than fabricating a link
+- [x] What's intentionally out of scope, linking to PLAN §8 — this reads as judgment, not as gaps
 
 ---
 
