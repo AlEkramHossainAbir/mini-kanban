@@ -1,0 +1,42 @@
+# Root ROADMAP.md Phase 3 — one-command bring-up: `cp .env.example .env && docker compose up --build`
+# starts db + backend + frontend with zero further manual steps.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./mini-kanban-backend
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports: ["4000:4000"]
+
+  frontend:
+    # BACKEND_URL must arrive as a BUILD ARG, not only through env_file — Next bakes
+    # the /api/v1 rewrite destination into routes-manifest.json at build time and
+    # never re-reads it at run time (frontend ROADMAP Phase 2 / Phase 12). Without
+    # this, the image bakes http://localhost:4000 and every API call in the
+    # container 502s.
+    build:
+      context: ./mini-kanban-frontend
+      args:
+        BACKEND_URL: ${BACKEND_URL}
+    env_file: .env
+    depends_on: [backend]
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
