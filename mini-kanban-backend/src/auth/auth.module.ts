@@ -8,9 +8,16 @@ import { JwtStrategy } from './jwt.strategy';
 @Module({
   imports: [
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_ACCESS_SECRET,
-      signOptions: { expiresIn: process.env.ACCESS_TOKEN_TTL ?? '15m' },
+    // registerAsync, not register: a plain register() reads process.env while
+    // this module is still being *imported*, which is before
+    // ConfigModule.forRoot() has loaded .env. That only worked by accident —
+    // importing @prisma/client happens to load .env as a side effect. The
+    // factory runs at DI time instead, once config is definitely in place.
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: process.env.JWT_ACCESS_SECRET,
+        signOptions: { expiresIn: process.env.ACCESS_TOKEN_TTL ?? '15m' },
+      }),
     }),
   ],
   controllers: [AuthController],

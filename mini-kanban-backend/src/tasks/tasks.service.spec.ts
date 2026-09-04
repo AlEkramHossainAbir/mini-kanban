@@ -77,13 +77,18 @@ function stubPrisma(options: {
   return { prisma, updateManyCalls, singleUpdateCalls };
 }
 
+// The gateway is a broadcast side-channel: these tests assert persistence
+// behaviour, so a no-op stub keeps them focused. Gateway authorization has
+// its own spec.
+const noopGateway = { emit: jest.fn() } as any;
+
 describe('TasksService.move', () => {
   it('rejects a target column on a different board with 400 INVALID_TARGET_COLUMN', async () => {
     const { prisma } = stubPrisma({
       targetColumnBoardId: 'other-board',
       others: [],
     });
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -95,7 +100,7 @@ describe('TasksService.move', () => {
 
   it('rejects a nonexistent target column the same way', async () => {
     const { prisma } = stubPrisma({ targetColumnBoardId: null, others: [] });
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -111,7 +116,7 @@ describe('TasksService.move', () => {
       others: [{ id: 'sibling', rank: 'm' }],
       updateManyMatchCounts: [0], // conditional write matches nothing — someone else moved it first
     });
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -129,7 +134,7 @@ describe('TasksService.move', () => {
       others: [{ id: 'sibling', rank: 'm' }],
       updateManyMatchCounts: [1],
     });
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     const result = await service.move('board-1', 'moved-task', {
       targetColumnId: 'col-x',
@@ -152,7 +157,7 @@ describe('TasksService.move', () => {
       updateManyMatchCounts: [1],
       throwOnTransactionCall: { index: 0, error: serializationFailure() },
     });
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     const result = await service.move('board-1', 'moved-task', {
       targetColumnId: 'col-x',
@@ -182,7 +187,7 @@ describe('TasksService.move', () => {
       .fn()
       .mockRejectedValueOnce(serializationFailure())
       .mockRejectedValueOnce(serializationFailure());
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -202,7 +207,7 @@ describe('TasksService.move', () => {
       others: [{ id: 'sibling', rank: longBoundary }],
       updateManyMatchCounts: [1],
     });
-    const service = new TasksService(prisma);
+    const service = new TasksService(prisma, noopGateway);
 
     await service.move('board-1', 'moved-task', {
       targetColumnId: 'col-x',

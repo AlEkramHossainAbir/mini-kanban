@@ -166,10 +166,24 @@ npx prisma studio          # eyeball the tables
 
 `src/gateway/board.gateway.ts`
 
-- [ ] Handshake validates the **ws-ticket** from Phase 4 (single-use, then discarded)
-- [ ] `join` handler **re-runs the `BoardMember` check** before admitting the socket to `board:<boardId>` — a valid session is not authority to listen to a board (PLAN §3/§4)
-- [ ] Emit `task.moved` / `task.created` / `task.updated` / `task.deleted` / `column.*` **after commit**, always including `version`
-- [ ] Single instance, in-memory rooms — the Redis adapter is PLAN §7, not now
+- [x] Handshake validates the **ws-ticket** from Phase 4 (single-use, then discarded) — implemented
+      as Socket.IO **middleware** (`afterInit` → `server.use`), so rejection happens *during* the
+      handshake and an unauthenticated socket is never admitted even briefly. Rejecting inside
+      `handleConnection` instead would let the client fire `connect` first and only then be kicked;
+      the middleware gives the frontend a plain `connect_error` to handle (frontend Phase 10).
+      One opaque `INVALID_TICKET` reason — never leaks missing vs. expired vs. already-spent.
+- [x] `join` handler **re-runs the `BoardMember` check** before admitting the socket to `board:<boardId>` — a valid session is not authority to listen to a board (PLAN §3/§4)
+- [x] Emit `task.moved` / `task.created` / `task.updated` / `task.deleted` / `column.*` **after commit**, always including `version` — 8 events total. `task.moved` is emitted by a
+      `broadcastMove()` wrapper *outside* the `$transaction`, so a rolled-back or `409`-rejected
+      move broadcasts nothing at all.
+- [x] Single instance, in-memory rooms — the Redis adapter is PLAN §7, not now
+
+**Verified live** with a real `socket.io-client` — 25 checks, all passing: no ticket / bogus ticket /
+**replayed** ticket all rejected with `INVALID_TICKET` (proving single-use); member `join` returns
+`{ok, role}`; unknown board and non-member `join` both return `FORBIDDEN`; all 8 event types
+received with correct `version`/`columnId`/`title`; a `409` conflict emits **no** `task.moved`; a
+non-member socket that was refused the room receives nothing while the board is actively mutated;
+`leave` stops delivery. `socket.io-client` added as a backend devDependency for this.
 
 ---
 
@@ -184,10 +198,17 @@ npx prisma studio          # eyeball the tables
 
 Small on purpose — the four things a reviewer will actually probe:
 
-- [ ] `rank.util.spec.ts` (unit, from Phase 7)
+- [x] `rank.util.spec.ts` (unit, from Phase 7) — landed early, in Phase 7, along with
+      `columns.service.spec.ts`, `tasks.service.spec.ts` and `env.validation.spec.ts`
+      (62 unit tests total)
 - [ ] `auth.e2e-spec.ts` — register → login → refresh → logout
 - [ ] `authz.e2e-spec.ts` — IDOR attempt returns `403`
 - [ ] `move.e2e-spec.ts` — stale `expectedVersion` returns `409`; cross-board `targetColumnId` returns `400`
+
+> All three e2e specs above are currently covered *manually* — a 125-check scripted audit against a
+> live instance (auth, IDOR, roles, boards/members, columns, tasks, move, cascades, security
+> headers) plus an 8-way concurrent move race that produced exactly one `200` and seven `409`s.
+> They still need to be committed as automated Jest e2e specs for this phase to close.
 
 ```bash
 npm run test        # unit
@@ -240,6 +261,20 @@ NODE_ENV=development
 ```
 
 Generate real ones with `openssl rand -base64 32`.
+
+- [x] **Validated at boot** — `src/common/env.validation.ts`, wired via
+      `ConfigModule.forRoot({ validate })`. Requires `DATABASE_URL` + both JWT secrets, rejects
+      the two secrets being identical (that would make the refresh-token HMAC key the same value
+      that signs access tokens, PLAN §1), and rejects malformed TTLs. Under
+      `NODE_ENV=production` it additionally rejects `.env.example` placeholders and secrets
+      shorter than 32 chars. Deliberately lenient outside production so root ROADMAP Phase 3's
+      `cp .env.example .env && docker compose up --build` still works with zero manual steps.
+      Added after an audit found a missing `JWT_ACCESS_SECRET` let the app boot fine and only
+      fail with a `500` on the first login.
+- [x] `AuthModule` uses `JwtModule.registerAsync` so the secret is read at DI time. With plain
+      `register()` it was read while the module was still being *imported* — before
+      `ConfigModule` loads `.env` — and only worked because importing `@prisma/client` happens
+      to load `.env` as a side effect.
 
 ---
 

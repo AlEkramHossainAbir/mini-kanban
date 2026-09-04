@@ -17,7 +17,7 @@ import {
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { PublicUser } from './public-user.type';
-import { parseTtlMs } from './ttl.util';
+import { parseTtlMs } from '../common/ttl.util';
 
 const BCRYPT_COST = 12;
 const WS_TICKET_TTL_MS = 30_000;

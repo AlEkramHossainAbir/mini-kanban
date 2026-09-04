@@ -21,16 +21,27 @@ are already written down there. Don't relitigate them without a real reason.
 
 - Root repo is a **single repository with vendored directories** (Phase 0 of ROADMAP.md is
   done — no more git submodules, no `.gitmodules`).
-- `mini-kanban-backend/` — NestJS 10 scaffold only (Phase 0 of the backend roadmap). Port
-  changed to 4000. Nothing past scaffold exists yet: no Prisma schema, no auth, no modules.
+- `mini-kanban-backend/` — **backend ROADMAP Phases 0–8 are done.** Prisma schema + committed
+  migration, app-wide wiring on `/api/v1`, auth (cookie JWT + rotating refresh tokens), the
+  `BoardAccessGuard`/`RolesGuard` chain, boards + members, columns + the rank utility, and
+  tasks + the `PATCH /tasks/:id/move` endpoint with `version`/`409` optimistic concurrency.
+  All 22 endpoints in PLAN §3's table exist. **Phase 9 (WebSocket gateway) is also done** —
+  `BoardGateway` with ws-ticket handshake middleware, an authorized `join`, and 8 `task.*`/
+  `column.*` events broadcast after commit. **Next up: Phase 10 (audit log).**
 - `mini-kanban-frontend/` — Next 14 / React 18 / TypeScript / Tailwind scaffold only (Phase 0 of
-  the frontend roadmap). Boilerplate hero removed. Nothing past scaffold exists yet.
-- Root `.gitignore` exists (node_modules, dist, .next, .env, `.claude/settings.local.json`).
-  Still missing from root ROADMAP.md Phases 1/3: `.env.example` and `docker-compose.yml`.
+  the frontend roadmap). Boilerplate hero removed. Nothing past scaffold exists yet — this is
+  correct, root ROADMAP Phase 2 gates frontend work behind backend Phases 5–9.
+- Root `.gitignore` and root `.env.example` both exist (Phase 1 done). Still missing from root
+  ROADMAP.md Phase 3: `docker-compose.yml` — note its own timing said "end of Day 1 for `db` +
+  `backend`", so it is the one item running behind its plan.
 - Root `README.md` is **stale** — it still describes the two apps as git submodules and tells
   readers to `git clone --recurse-submodules`, which stopped being true at Phase 0. Its submodule
   instructions have been corrected, but the full rewrite is root ROADMAP.md Phase 4 and hasn't
   happened; it has no quick start, env var block, or API table yet.
+- **Env vars are validated at boot** (`src/common/env.validation.ts`, wired into
+  `ConfigModule.forRoot`): a missing/duplicated JWT secret or a malformed TTL stops the process
+  with a readable error. It stays lenient outside `NODE_ENV=production` on purpose, so root
+  Phase 3's `cp .env.example .env && docker compose up` still works with placeholder secrets.
 
 Before starting new work, check `git log --oneline` and the checkboxes in the three ROADMAP.md
 files rather than assuming — they get checked off as work lands.
@@ -40,7 +51,7 @@ files rather than assuming — they get checked off as work lands.
 | Layer | Choice |
 |---|---|
 | Frontend | Next.js 14 (App Router), React 18, TypeScript, Tailwind — `mini-kanban-frontend/` |
-| Backend | NestJS 10, TypeScript, Prisma 6 (not installed yet) — `mini-kanban-backend/`, listens on **:4000**; the `/api/v1` global prefix lands in backend Phase 3 |
+| Backend | NestJS 10, TypeScript, Prisma 6 — `mini-kanban-backend/`, listens on **:4000** behind the `/api/v1` global prefix |
 | Database | PostgreSQL 16 |
 | Realtime | Socket.IO via `@nestjs/websockets`, single instance |
 | DevOps | Docker Compose — `db`, `backend`, `frontend` |

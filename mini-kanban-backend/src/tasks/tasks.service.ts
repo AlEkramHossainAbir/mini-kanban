@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { BOARD_EVENTS, BoardGateway } from '../gateway/board.gateway';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { MoveTaskDto } from './dto/move-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -26,7 +27,10 @@ const MOVE_RESULT_SELECT = {
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gateway: BoardGateway,
+  ) {}
 
   async create(boardId: string, columnId: string, dto: CreateTaskDto) {
     const lastTask = await this.prisma.task.findFirst({
@@ -35,7 +39,7 @@ export class TasksService {
       select: { rank: true },
     });
     const rank = between(lastTask?.rank ?? first(), last());
-    return this.prisma.task.create({
+    const task = await this.prisma.task.create({
       data: {
         boardId,
         columnId,
@@ -44,18 +48,32 @@ export class TasksService {
         rank,
       },
     });
+    this.gateway.emit(boardId, BOARD_EVENTS.taskCreated, task);
+    return task;
   }
 
-  update(taskId: string, dto: UpdateTaskDto) {
+  async update(taskId: string, dto: UpdateTaskDto) {
     // Title/description only. Deliberately does NOT bump `version`: version
     // exists to detect a stale *position* (PLAN §3), and bumping it on an
     // unrelated field edit would manufacture false move conflicts for
     // anyone mid-drag, not just catch real ones.
-    return this.prisma.task.update({ where: { id: taskId }, data: dto });
+    const task = await this.prisma.task.update({
+      where: { id: taskId },
+      data: dto,
+    });
+    this.gateway.emit(task.boardId, BOARD_EVENTS.taskUpdated, task);
+    return task;
   }
 
   async remove(taskId: string): Promise<void> {
-    await this.prisma.task.delete({ where: { id: taskId } });
+    // delete() returns the row it removed, which is how we still know the
+    // boardId to broadcast on after it's gone.
+    const task = await this.prisma.task.delete({ where: { id: taskId } });
+    this.gateway.emit(task.boardId, BOARD_EVENTS.taskDeleted, {
+      id: task.id,
+      columnId: task.columnId,
+      boardId: task.boardId,
+    });
   }
 
   async move(boardId: string, taskId: string, dto: MoveTaskDto) {
@@ -75,14 +93,14 @@ export class TasksService {
     }
 
     try {
-      return await this.attemptMove(taskId, dto);
+      return this.broadcastMove(boardId, await this.attemptMove(taskId, dto));
     } catch (err) {
       if (!isSerializationFailure(err)) {
         throw err;
       }
       // One retry against fresh state (PLAN §3), then give up.
       try {
-        return await this.attemptMove(taskId, dto);
+        return this.broadcastMove(boardId, await this.attemptMove(taskId, dto));
       } catch (retryErr) {
         if (!isSerializationFailure(retryErr)) {
           throw retryErr;
@@ -94,6 +112,17 @@ export class TasksService {
         throw new TaskVersionConflictException(currentTask);
       }
     }
+  }
+
+  /**
+   * Broadcast only once the move transaction has actually committed
+   * (ROADMAP Phase 9: "emit ... **after commit**"). Announcing a write that
+   * then rolls back would be worse than staying silent, and a 409 conflict
+   * must emit nothing at all — the losing caller changed no state.
+   */
+  private broadcastMove<T>(boardId: string, moved: T): T {
+    this.gateway.emit(boardId, BOARD_EVENTS.taskMoved, moved);
+    return moved;
   }
 
   /**

@@ -24,10 +24,15 @@ function stubPrisma(columns: { id: string; rank: string }[]) {
   return { prisma, updateCalls };
 }
 
+// The gateway is a broadcast side-channel: these tests assert persistence
+// behaviour, so a no-op stub keeps them focused. Gateway authorization has
+// its own spec.
+const noopGateway = { emit: jest.fn() } as any;
+
 describe('ColumnsService.move — rebalance trigger', () => {
   it('writes only the moved column when the computed rank stays short', async () => {
     const { prisma, updateCalls } = stubPrisma([{ id: 'b', rank: 'm' }]);
-    const service = new ColumnsService(prisma as any);
+    const service = new ColumnsService(prisma as any, noopGateway);
 
     await service.move('board-1', 'a', { afterColumnId: 'b' });
 
@@ -47,7 +52,7 @@ describe('ColumnsService.move — rebalance trigger', () => {
     const { prisma, updateCalls } = stubPrisma([
       { id: 'existing', rank: longBoundary },
     ]);
-    const service = new ColumnsService(prisma as any);
+    const service = new ColumnsService(prisma as any, noopGateway);
 
     const result = await service.move('board-1', 'moved', {
       afterColumnId: 'existing',

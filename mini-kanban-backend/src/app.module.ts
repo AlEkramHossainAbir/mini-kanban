@@ -5,14 +5,19 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { BoardsModule } from './boards/boards.module';
 import { ColumnsModule } from './columns/columns.module';
+import { validateEnv } from './common/env.validation';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { GatewayModule } from './gateway/gateway.module';
 import { HealthController } from './health/health.controller';
 import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // `validate` runs at boot: a missing/duplicated JWT secret or a
+    // malformed TTL stops the process with a readable error instead of
+    // surfacing as a 500 on the first login.
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     // Generous global default; per-route @Throttle() overrides (e.g. tight
     // limits on /auth/login and /auth/register) land in the auth module.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
@@ -21,6 +26,7 @@ import { TasksModule } from './tasks/tasks.module';
     BoardsModule,
     ColumnsModule,
     TasksModule,
+    GatewayModule,
   ],
   controllers: [HealthController],
   providers: [
