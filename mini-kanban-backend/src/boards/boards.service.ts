@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { BoardRole, Prisma } from '@prisma/client';
+import { AuditAction, AuditEntity } from '../audit/audit.actions';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { decodeCursor, encodeCursor } from './cursor.util';
 import { AddMemberDto } from './dto/add-member.dto';
@@ -18,9 +20,16 @@ const MEMBER_SELECT = {
   user: { select: { id: true, email: true, name: true } },
 } satisfies Prisma.BoardMemberSelect;
 
+type MemberView = Prisma.BoardMemberGetPayload<{
+  select: typeof MEMBER_SELECT;
+}>;
+
 @Injectable()
 export class BoardsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async create(ownerId: string, dto: CreateBoardDto) {
     // Single source of truth (PLAN §4): the OWNER membership row is created
@@ -136,9 +145,19 @@ export class BoardsService {
     return this.prisma.board.update({ where: { id: boardId }, data: dto });
   }
 
-  async remove(boardId: string): Promise<void> {
+  async remove(boardId: string, actorId: string): Promise<void> {
     // Columns → tasks cascade via the FK onDelete: Cascade in the schema.
-    await this.prisma.board.delete({ where: { id: boardId } });
+    const board = await this.prisma.board.delete({ where: { id: boardId } });
+    // AuditLog.boardId is denormalized rather than a FK precisely so this
+    // row outlives the board it describes (PLAN §2).
+    await this.audit.log({
+      userId: actorId,
+      boardId,
+      action: AuditAction.BOARD_DELETE,
+      entityType: AuditEntity.BOARD,
+      entityId: boardId,
+      metadata: { title: board.title },
+    });
   }
 
   listMembers(boardId: string) {
@@ -149,7 +168,7 @@ export class BoardsService {
     });
   }
 
-  async addMember(boardId: string, dto: AddMemberDto) {
+  async addMember(boardId: string, dto: AddMemberDto, actorId: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
     });
@@ -159,8 +178,9 @@ export class BoardsService {
       throw new NotFoundException('No registered user with that email');
     }
 
+    let member: MemberView;
     try {
-      return await this.prisma.boardMember.create({
+      member = await this.prisma.boardMember.create({
         data: { boardId, userId: user.id, role: dto.role },
         select: MEMBER_SELECT,
       });
@@ -170,12 +190,29 @@ export class BoardsService {
       }
       throw err;
     }
+
+    await this.audit.log({
+      userId: actorId,
+      boardId,
+      action: AuditAction.BOARD_SHARE,
+      entityType: AuditEntity.BOARD_MEMBER,
+      entityId: user.id,
+      metadata: { targetEmail: user.email, role: dto.role },
+    });
+    return member;
   }
 
-  async updateMemberRole(boardId: string, userId: string, role: BoardRole) {
-    await this.assertLastOwnerSafe(boardId, userId, role);
+  async updateMemberRole(
+    boardId: string,
+    userId: string,
+    role: BoardRole,
+    actorId: string,
+  ) {
+    const previous = await this.assertLastOwnerSafe(boardId, userId, role);
+
+    let member: MemberView;
     try {
-      return await this.prisma.boardMember.update({
+      member = await this.prisma.boardMember.update({
         where: { boardId_userId: { boardId, userId } },
         data: { role },
         select: MEMBER_SELECT,
@@ -186,10 +223,24 @@ export class BoardsService {
       }
       throw err;
     }
+
+    await this.audit.log({
+      userId: actorId,
+      boardId,
+      action: AuditAction.ROLE_CHANGE,
+      entityType: AuditEntity.BOARD_MEMBER,
+      entityId: userId,
+      metadata: { from: previous?.role ?? null, to: role },
+    });
+    return member;
   }
 
-  async removeMember(boardId: string, userId: string): Promise<void> {
-    await this.assertLastOwnerSafe(boardId, userId, null);
+  async removeMember(
+    boardId: string,
+    userId: string,
+    actorId: string,
+  ): Promise<void> {
+    const previous = await this.assertLastOwnerSafe(boardId, userId, null);
     try {
       await this.prisma.boardMember.delete({
         where: { boardId_userId: { boardId, userId } },
@@ -200,26 +251,40 @@ export class BoardsService {
       }
       throw err;
     }
+
+    await this.audit.log({
+      userId: actorId,
+      boardId,
+      action: AuditAction.BOARD_UNSHARE,
+      entityType: AuditEntity.BOARD_MEMBER,
+      entityId: userId,
+      metadata: { revokedRole: previous?.role ?? null },
+    });
   }
 
   /**
    * A board can never end up ownerless (PLAN §4): rejects demoting a member
    * away from OWNER, or removing one (`newRole: null`), if they're the
    * board's last remaining OWNER.
+   *
+   * Returns the membership row as it stood *before* the caller's mutation,
+   * so the audit entry can record what the role changed from — the target
+   * row is gone or overwritten by the time the caller comes to log it.
    */
   private async assertLastOwnerSafe(
     boardId: string,
     userId: string,
     newRole: BoardRole | null,
-  ): Promise<void> {
-    if (newRole === BoardRole.OWNER) {
-      return; // staying/becoming OWNER never reduces the owner count
-    }
+  ): Promise<{ role: BoardRole } | null> {
     const target = await this.prisma.boardMember.findUnique({
       where: { boardId_userId: { boardId, userId } },
+      select: { role: true },
     });
+    if (newRole === BoardRole.OWNER) {
+      return target; // staying/becoming OWNER never reduces the owner count
+    }
     if (!target || target.role !== BoardRole.OWNER) {
-      return; // wasn't an owner to begin with — nothing to protect
+      return target; // wasn't an owner to begin with — nothing to protect
     }
     const ownerCount = await this.prisma.boardMember.count({
       where: { boardId, role: BoardRole.OWNER },
@@ -229,6 +294,7 @@ export class BoardsService {
         "Cannot remove or demote the board's last owner",
       );
     }
+    return target;
   }
 }
 

@@ -8,6 +8,8 @@ import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHmac, randomBytes } from 'crypto';
 import { Request, Response } from 'express';
+import { AuditAction, AuditEntity } from '../audit/audit.actions';
+import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
   ACCESS_COOKIE,
@@ -32,6 +34,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly audit: AuditService,
   ) {}
 
   // In-memory, single-instance store for short-lived WS handshake tickets
@@ -93,10 +96,27 @@ export class AuthService {
       // A revoked (already-rotated) token being presented again is the
       // reuse-detection signal from PLAN §1: someone else has this token,
       // so the whole family is burned, not just this one row.
-      await this.prisma.refreshToken.updateMany({
+      const burned = await this.prisma.refreshToken.updateMany({
         where: { userId: existing.userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      // A non-board security event, so boardId is null (PLAN §2/§5). An
+      // expired-but-unrevoked token is ordinary session end, not reuse —
+      // only the revoked case is recorded as an incident.
+      if (existing.revokedAt) {
+        await this.audit.log({
+          userId: existing.userId,
+          boardId: null,
+          action: AuditAction.REFRESH_TOKEN_REUSE,
+          entityType: AuditEntity.REFRESH_TOKEN,
+          entityId: existing.id,
+          metadata: {
+            revokedSessions: burned.count,
+            ip: req.ip ?? null,
+            userAgent: req.get('user-agent') ?? null,
+          },
+        });
+      }
       this.clearAuthCookies(res);
       throw new UnauthorizedException('Session revoked');
     }

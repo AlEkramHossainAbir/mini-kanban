@@ -189,8 +189,33 @@ non-member socket that was refused the room receives nothing while the board is 
 
 ## Phase 10 — Audit log (~30 min) · *Day 4*
 
-- [ ] `AuditService.log()` called from board share/unshare, role change, member removal, board deletion — **not** from task moves (PLAN §5)
-- [ ] Log refresh-token reuse detection too, with `boardId: null`
+- [x] `AuditService.log()` called from board share/unshare, role change, member removal, board deletion — **not** from task moves (PLAN §5). `src/audit/` — a service, a closed
+      `AuditAction`/`AuditEntity` set, and a module imported by `BoardsModule` + `AuthModule`.
+      Every call sites fires **after** its mutation has succeeded, so a rejected action (last-owner
+      demotion, duplicate share, unknown email) records nothing.
+- [x] Log refresh-token reuse detection too, with `boardId: null` — only for a genuinely *revoked*
+      token being replayed; an expired-but-unrevoked one is ordinary session end, not an incident.
+      Metadata carries the burned-session count, IP and user-agent.
+
+Two decisions worth stating, both deliberate:
+
+- **`log()` never throws.** The caller's mutation has already committed by the time it runs, so a
+  failed audit *insert* must not turn a successful share into a `500` that tells the client its
+  action didn't happen. A lost row is `Logger.error`'d instead (PLAN §7.5 queues this off the
+  request path later).
+- **`assertLastOwnerSafe()` now returns the pre-mutation membership row** rather than `void` — the
+  `ROLE_CHANGE`/`BOARD_UNSHARE` entries need the role it changed *from*, and that row is gone or
+  overwritten by the time the caller logs. Costs one extra `findUnique` on promote-to-OWNER, which
+  previously short-circuited before any lookup.
+
+**Verified live** against Postgres: share → `ROLE_CHANGE` → unshare → refresh-token replay →
+board delete produced exactly **5** rows with the right actor, target, `boardId` and metadata —
+and column/task creation, a successful `PATCH /tasks/:id/move`, login and register produced
+**none**, per PLAN §5's "not routine task moves". `BOARD_DELETE` survives its board's deletion
+(`boardId` is denormalized, not a FK — PLAN §2); `REFRESH_TOKEN_REUSE` has `boardId: null`.
+Negative pass: `404` unknown email, `409` duplicate share, `404` remove-non-member and the `409`
+last-owner demotion added **0** rows between them. `npm run test` (65 tests, 3 new in
+`audit.service.spec.ts`), `lint` and `build` all clean.
 
 ---
 

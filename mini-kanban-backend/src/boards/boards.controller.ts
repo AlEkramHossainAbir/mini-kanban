@@ -66,8 +66,11 @@ export class BoardsController {
   @RequireRole(BoardRole.OWNER)
   @Delete(':boardId')
   @HttpCode(204)
-  async remove(@Param('boardId') boardId: string): Promise<void> {
-    await this.boardsService.remove(boardId);
+  async remove(
+    @Param('boardId') boardId: string,
+    @CurrentUser() user: PublicUser,
+  ): Promise<void> {
+    await this.boardsService.remove(boardId, user.id);
   }
 
   @UseGuards(BoardAccessGuard, RolesGuard)
@@ -89,8 +92,12 @@ export class BoardsController {
   @UseGuards(BoardAccessGuard, RolesGuard)
   @RequireRole(BoardRole.OWNER)
   @Post(':boardId/members')
-  addMember(@Param('boardId') boardId: string, @Body() dto: AddMemberDto) {
-    return this.boardsService.addMember(boardId, dto);
+  addMember(
+    @Param('boardId') boardId: string,
+    @Body() dto: AddMemberDto,
+    @CurrentUser() user: PublicUser,
+  ) {
+    return this.boardsService.addMember(boardId, dto, user.id);
   }
 
   @UseGuards(BoardAccessGuard, RolesGuard)
@@ -100,8 +107,14 @@ export class BoardsController {
     @Param('boardId') boardId: string,
     @Param('userId') userId: string,
     @Body() dto: UpdateMemberDto,
+    @CurrentUser() actor: PublicUser,
   ) {
-    return this.boardsService.updateMemberRole(boardId, userId, dto.role);
+    return this.boardsService.updateMemberRole(
+      boardId,
+      userId,
+      dto.role,
+      actor.id,
+    );
   }
 
   @UseGuards(BoardAccessGuard, RolesGuard)
@@ -111,7 +124,8 @@ export class BoardsController {
   async removeMember(
     @Param('boardId') boardId: string,
     @Param('userId') userId: string,
+    @CurrentUser() actor: PublicUser,
   ): Promise<void> {
-    await this.boardsService.removeMember(boardId, userId);
+    await this.boardsService.removeMember(boardId, userId, actor.id);
   }
 }
