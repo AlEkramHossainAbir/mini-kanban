@@ -125,11 +125,13 @@ npx prisma studio          # eyeball the tables
 
 ## Phase 6 — Boards & members (~2 h) · *Day 2*
 
-- [ ] `POST /boards` — creates the board **and** the creator's `OWNER` `BoardMember` row *in one transaction* (PLAN §4 — single source of truth)
-- [ ] `GET /boards` — cursor pagination on `(createdAt, id)`, `limit` default 20 (PLAN §2)
-- [ ] `GET /boards/:id` — board + columns + tasks nested, ordered by `rank`; **every task must include `version`** or the frontend can't send `expectedVersion`
-- [ ] `PATCH /boards/:id` (EDITOR+), `DELETE /boards/:id` (OWNER)
-- [ ] `GET/POST/PATCH/DELETE /boards/:id/members` — OWNER only; share by email; **last-owner guard** on removal/demotion
+- [x] `POST /boards` — creates the board **and** the creator's `OWNER` `BoardMember` row *in one transaction* (PLAN §4 — single source of truth)
+- [x] `GET /boards` — cursor pagination on `(createdAt, id)`, `limit` default 20 (PLAN §2)
+- [x] `GET /boards/:id` — board + columns + tasks nested, ordered by `rank`; **every task must include `version`** or the frontend can't send `expectedVersion`
+- [x] `PATCH /boards/:id` (EDITOR+), `DELETE /boards/:id` (OWNER)
+- [x] `GET/POST/PATCH/DELETE /boards/:id/members` — `GET` is member-only per PLAN §3's table (any role can see who has access); `POST`/`PATCH`/`DELETE` are OWNER only; share by email; **last-owner guard** on removal/demotion
+
+**Verified live** against Postgres with two real users (curl + cookie jars): board create → OWNER auto-membership → list shows `role` per board → outsider gets `403` on the board and on `PATCH` → share by email → duplicate share `409` → unregistered email `404` → VIEWER can read but `403` on `PATCH`/add-member → promoted to EDITOR → EDITOR's `PATCH` succeeds → self-removing the sole OWNER → `409` (last-owner guard) → removing a member → `204`, and their access is immediately `403` → cursor pagination across 3 boards splits/resumes correctly, newest-first, and a garbage cursor → `400` → deleting a board (OWNER) → `204`, and it then reads back as `403` (folded into the same not-found-vs-forbidden guard behavior from Phase 5, not a distinguishing `404`). `npm run test`, `test:e2e`, and `lint` all clean.
 
 ---
 
