@@ -1,4 +1,10 @@
-import { between, first, last, rebalance } from './rank.util';
+import {
+  between,
+  first,
+  last,
+  rebalance,
+  resolveNeighborBounds,
+} from './rank.util';
 
 describe('rank.util', () => {
   describe('first() / last()', () => {
@@ -142,6 +148,109 @@ describe('rank.util', () => {
       expect(between_a_b < b).toBe(true);
       expect(b < between_b_c).toBe(true);
       expect(between_b_c < c).toBe(true);
+    });
+  });
+
+  describe('resolveNeighborBounds()', () => {
+    const others = [
+      { id: 'x1', rank: 'd' },
+      { id: 'x2', rank: 'm' },
+      { id: 'x3', rank: 'v' },
+    ];
+
+    it('empty list: no neighbors, no position — bounds span the whole keyspace', () => {
+      const bounds = resolveNeighborBounds([], {});
+      expect(bounds).toEqual({
+        lowerBound: first(),
+        upperBound: last(),
+        insertIndex: 0,
+      });
+    });
+
+    it('beforeId + afterId: bounds are exactly that pair, insertIndex sits between them', () => {
+      const bounds = resolveNeighborBounds(others, {
+        beforeId: 'x1',
+        afterId: 'x2',
+      });
+      expect(bounds).toEqual({
+        lowerBound: 'd',
+        upperBound: 'm',
+        insertIndex: 1,
+      });
+    });
+
+    it('only afterId (insert at the very start): lowerBound is the sentinel', () => {
+      const bounds = resolveNeighborBounds(others, { afterId: 'x1' });
+      expect(bounds).toEqual({
+        lowerBound: first(),
+        upperBound: 'd',
+        insertIndex: 0,
+      });
+    });
+
+    it('only beforeId (insert at the very end): upperBound is the sentinel', () => {
+      const bounds = resolveNeighborBounds(others, { beforeId: 'x3' });
+      expect(bounds).toEqual({
+        lowerBound: 'v',
+        upperBound: last(),
+        insertIndex: 3,
+      });
+    });
+
+    it('self-healing: a stale/unknown neighbor id falls back to the sentinel on that side', () => {
+      const bounds = resolveNeighborBounds(others, {
+        beforeId: 'does-not-exist',
+        afterId: 'x2',
+      });
+      expect(bounds).toEqual({
+        lowerBound: first(),
+        upperBound: 'm',
+        insertIndex: 1,
+      });
+    });
+
+    it('position, no neighbor ids: resolves and clamps within range', () => {
+      expect(resolveNeighborBounds(others, { position: 0 })).toEqual({
+        lowerBound: first(),
+        upperBound: 'd',
+        insertIndex: 0,
+      });
+      expect(resolveNeighborBounds(others, { position: 2 })).toEqual({
+        lowerBound: 'm',
+        upperBound: 'v',
+        insertIndex: 2,
+      });
+      expect(resolveNeighborBounds(others, { position: 999 })).toEqual({
+        lowerBound: 'v',
+        upperBound: last(),
+        insertIndex: 3,
+      });
+      expect(resolveNeighborBounds(others, { position: -5 })).toEqual({
+        lowerBound: first(),
+        upperBound: 'd',
+        insertIndex: 0,
+      });
+    });
+
+    it('neither neighbor ids nor position: defaults to append-at-end', () => {
+      expect(resolveNeighborBounds(others, {})).toEqual({
+        lowerBound: 'v',
+        upperBound: last(),
+        insertIndex: 3,
+      });
+    });
+
+    it('neighbor ids win when both neighbor ids and position are supplied', () => {
+      const bounds = resolveNeighborBounds(others, {
+        beforeId: 'x1',
+        afterId: 'x2',
+        position: 0, // would mean "at the very start" — ignored
+      });
+      expect(bounds).toEqual({
+        lowerBound: 'd',
+        upperBound: 'm',
+        insertIndex: 1,
+      });
     });
   });
 });

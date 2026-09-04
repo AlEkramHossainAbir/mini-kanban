@@ -148,17 +148,17 @@ npx prisma studio          # eyeball the tables
 
 ## Phase 8 — Tasks & the move endpoint (~3 h) · *Day 2 — the graded core*
 
-- [ ] `POST /columns/:id/tasks`, `PATCH /tasks/:id`, `DELETE /tasks/:id`
-- [ ] `PATCH /tasks/:id/move` — the whole of PLAN §3:
-  - [ ] accepts `beforeTaskId`/`afterTaskId` **and** `position` (the brief's literal "specific position index"); `position` resolves to neighbours server-side inside the transaction; neighbour ids win if both are sent
-  - [ ] cross-board rejection → `400 INVALID_TARGET_COLUMN`
-  - [ ] `prisma.$transaction(fn, { isolation: Prisma.TransactionIsolationLevel.Serializable })`
-  - [ ] conditional write via `updateMany({ where: { id, version } })`, check `count === 0` → `409` with the fresh row
-  - [ ] retry **once** on a Postgres serialization failure, then give up with `409`
-  - [ ] trigger `rebalanceColumn()` when a computed rank exceeds ~40 chars
-  - [ ] `Task.boardId` stays in sync inside the same transaction
+- [x] `POST /columns/:id/tasks`, `PATCH /tasks/:id`, `DELETE /tasks/:id`
+- [x] `PATCH /tasks/:id/move` — the whole of PLAN §3:
+  - [x] accepts `beforeTaskId`/`afterTaskId` **and** `position` (the brief's literal "specific position index"); `position` resolves to neighbours server-side inside the transaction; neighbour ids win if both are sent
+  - [x] cross-board rejection → `400 INVALID_TARGET_COLUMN`
+  - [x] `prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })` — note: the actual Prisma 6 option key is `isolationLevel`, not `isolation` as this line originally read; caught by the TS build, fixed
+  - [x] conditional write via `updateMany({ where: { id, version } })`, check `count === 0` → `409` with the fresh row
+  - [x] retry **once** on a Postgres serialization failure, then give up with `409`
+  - [x] trigger `rebalanceColumn()` when a computed rank exceeds ~40 chars — scoped to the *target* column only, via `resolveNeighborBounds`/`rebalance` shared with column move (extracted into `rank.util.ts` this phase to deduplicate identical logic — PLAN §3 already calls it "the same rank utility")
+  - [x] `Task.boardId` stays in sync inside the same transaction — achieved by never letting it need to change: the cross-board check above rejects the one operation that could ever make it drift, before any transaction starts
 
-**Done when:** two REST clients racing the same task produce exactly one `200` and one `409` carrying the corrected state.
+**Done when:** two REST clients racing the same task produce exactly one `200` and one `409` carrying the corrected state. ✅ Verified live against Postgres: fired 2 concurrent `PATCH /tasks/:id/move` requests at the same task (same `expectedVersion`) → exactly one `200`, one `409` with the corrected `currentTask`; repeated with **5** concurrent clients → exactly one `200`, four `409`s, `version` incremented exactly once (2→3) despite 5 simultaneous attempts. Also verified: same-column reorder, cross-column move, the exact `{error: 'VERSION_CONFLICT', currentTask}` response shape with no wrapper (required a route-scoped `TaskVersionConflictFilter`, since the global exception filter would have clobbered it into its own `{statusCode,path,timestamp,message}` shape), cross-board rejection (`400 INVALID_TARGET_COLUMN`), self-healing on a stale neighbor id, cross-board `403` for a non-member, and that a plain title edit does *not* bump `version` (deliberate — see `tasks.service.ts`, avoids manufacturing false move-conflicts for unrelated edits). The retry-on-serialization-failure path (P2034) is exercised by `tasks.service.spec.ts` (mocked Prisma) rather than live, since reliably forcing a genuine Postgres serialization failure on demand isn't practical from a curl script. `npm run test` (48 tests), `test:e2e`, and `lint` all clean.
 
 ---
 

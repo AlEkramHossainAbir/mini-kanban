@@ -136,3 +136,73 @@ function fillRange(
   fillRange(lo, mid - 1, lowerBound, midRank, out);
   fillRange(mid + 1, hi, midRank, upperBound, out);
 }
+
+export interface RankedRow {
+  id: string;
+  rank: string;
+}
+
+export interface MoveBounds {
+  lowerBound: string;
+  upperBound: string;
+  /** Where the moved item belongs within `others`, for the rebalance splice. */
+  insertIndex: number;
+}
+
+/**
+ * Resolves the `between()` boundary pair — plus where the moved item
+ * belongs within `others`, for a rebalance splice — from a neighbor-id or
+ * `position`-based move request. Shared by column move and task move
+ * (PLAN §3: "same neighbour-id payload shape"), since both resolve
+ * identically once reduced to "a list of {id, rank} siblings plus a
+ * requested position."
+ *
+ * `others` must already be ordered by `(rank, id)` ascending and must
+ * exclude the item being moved. Neighbor ids win over `position` when both
+ * are supplied (PLAN §3). A referenced neighbor id that isn't found in
+ * `others` — deleted, or moved elsewhere since the client last saw it —
+ * falls back to the sentinel boundary on that side rather than erroring:
+ * self-healing, per PLAN §3.
+ */
+export function resolveNeighborBounds(
+  others: readonly RankedRow[],
+  params: {
+    beforeId?: string | null;
+    afterId?: string | null;
+    position?: number | null;
+  },
+): MoveBounds {
+  const hasNeighborIds = params.beforeId != null || params.afterId != null;
+
+  if (hasNeighborIds) {
+    const beforeIdx = params.beforeId
+      ? others.findIndex((row) => row.id === params.beforeId)
+      : -1;
+    const afterIdx = params.afterId
+      ? others.findIndex((row) => row.id === params.afterId)
+      : -1;
+    return {
+      lowerBound: beforeIdx >= 0 ? others[beforeIdx].rank : first(),
+      upperBound: afterIdx >= 0 ? others[afterIdx].rank : last(),
+      insertIndex:
+        beforeIdx >= 0
+          ? beforeIdx + 1
+          : afterIdx >= 0
+            ? afterIdx
+            : others.length,
+    };
+  }
+
+  // No neighbor ids at all: fall back to `position` (clamped — out-of-range
+  // indices clamp to start/end rather than erroring, PLAN §3), or append at
+  // the end if nothing was supplied.
+  const clamped = Math.max(
+    0,
+    Math.min(params.position ?? others.length, others.length),
+  );
+  return {
+    lowerBound: clamped > 0 ? others[clamped - 1].rank : first(),
+    upperBound: clamped < others.length ? others[clamped].rank : last(),
+    insertIndex: clamped,
+  };
+}

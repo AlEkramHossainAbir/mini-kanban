@@ -5,6 +5,7 @@ import {
   HttpCode,
   Param,
   Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,19 +16,25 @@ import {
   BoardScopedRequest,
 } from '../common/guards/board-access.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { CreateTaskDto } from '../tasks/dto/create-task.dto';
+import { TasksService } from '../tasks/tasks.service';
 import { ColumnsService } from './columns.service';
 import { MoveColumnDto } from './dto/move-column.dto';
 import { UpdateColumnDto } from './dto/update-column.dto';
 
-// All three routes here are EDITOR+ (PLAN §3) — set once at class level
-// rather than repeated per method. Column *creation* lives on
-// BoardsController (`POST /boards/:boardId/columns`) since it's nested
-// under the board resource; these are the column's own top-level routes.
+// All routes here are EDITOR+ (PLAN §3) — set once at class level rather
+// than repeated per method. Column *creation* lives on BoardsController
+// (`POST /boards/:boardId/columns`) since it's nested under the board
+// resource; these are the column's own top-level routes, plus the nested
+// task-creation route (same nesting pattern one level down).
 @Controller('columns')
 @UseGuards(BoardAccessGuard, RolesGuard)
 @RequireRole(BoardRole.EDITOR)
 export class ColumnsController {
-  constructor(private readonly columnsService: ColumnsService) {}
+  constructor(
+    private readonly columnsService: ColumnsService,
+    private readonly tasksService: TasksService,
+  ) {}
 
   @Patch(':columnId')
   update(@Param('columnId') columnId: string, @Body() dto: UpdateColumnDto) {
@@ -49,5 +56,14 @@ export class ColumnsController {
     // req.boardId was already resolved (and authorized) by BoardAccessGuard
     // via this same :columnId — reusing it avoids a second lookup.
     return this.columnsService.move(req.boardId!, columnId, dto);
+  }
+
+  @Post(':columnId/tasks')
+  createTask(
+    @Param('columnId') columnId: string,
+    @Req() req: BoardScopedRequest,
+    @Body() dto: CreateTaskDto,
+  ) {
+    return this.tasksService.create(req.boardId!, columnId, dto);
   }
 }
