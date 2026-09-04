@@ -3,9 +3,9 @@
 import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { useRef } from "react";
 import { toast } from "sonner";
-import { ApiError, patch } from "./api";
+import { ApiError, del, patch, post } from "./api";
 import { boardKey } from "./board";
-import { between, first, last } from "./rank";
+import { between, first, last, sortByRank } from "./rank";
 import type { Board, Task } from "./types";
 
 /** PLAN §3's move payload — the neighbour-id shape, not a raw index (frontend
@@ -269,4 +269,215 @@ export function useMoveTask(boardId: string) {
 
   mutationRef.current = mutation;
   return mutation;
+}
+
+// ---------------------------------------------------------------------------
+// Task CRUD (frontend ROADMAP Phase 9). The move endpoint above is its own
+// thing (PLAN §3's graded core); these three are the plain create/edit/delete
+// paths — same optimistic-cache discipline (PLAN §6), no version/rank rigor.
+// ---------------------------------------------------------------------------
+
+function tempTaskId(): string {
+  return `temp-${
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2)
+  }`;
+}
+
+function findColumn(board: Board, columnId: string) {
+  return board.columns?.find((c) => c.id === columnId);
+}
+
+/** Appends a task to one column's array — used for both a freshly-created
+ *  placeholder and (defensively) the server's real row, never sorted here;
+ *  `sortByRank` is the one thing that decides render order (PLAN §6). */
+function appendTaskToColumn(board: Board, columnId: string, task: Task): Board {
+  return {
+    ...board,
+    columns: (board.columns ?? []).map((c) =>
+      c.id === columnId ? { ...c, tasks: [...c.tasks, task] } : c
+    ),
+  };
+}
+
+/** Swaps a temp-id placeholder for the server's real row, in place — the
+ *  same "swap, never append" rule `useCreateBoard` uses (PLAN §6): appending
+ *  the real row instead would leave the placeholder behind and double the
+ *  card. */
+function replaceTaskId(board: Board, tempId: string, real: Task): Board {
+  return {
+    ...board,
+    columns: (board.columns ?? []).map((c) => ({
+      ...c,
+      tasks: c.tasks.map((t) => (t.id === tempId ? real : t)),
+    })),
+  };
+}
+
+function removeTaskFromBoard(board: Board, taskId: string): Board {
+  return {
+    ...board,
+    columns: (board.columns ?? []).map((c) => ({
+      ...c,
+      tasks: c.tasks.filter((t) => t.id !== taskId),
+    })),
+  };
+}
+
+function patchTaskFields(board: Board, taskId: string, fields: Partial<Task>): Board {
+  return {
+    ...board,
+    columns: (board.columns ?? []).map((c) => ({
+      ...c,
+      tasks: c.tasks.map((t) => (t.id === taskId ? { ...t, ...fields } : t)),
+    })),
+  };
+}
+
+/** Estimated append-at-end rank for an optimistic placeholder — the same
+ *  read-half rank port `optimisticRank` above leans on. Never trusted past
+ *  the round trip: the create mutation's `onSuccess` swaps the whole
+ *  placeholder for the server's real row, rank included. */
+function appendRank(board: Board, columnId: string): string {
+  const column = findColumn(board, columnId);
+  const tasks = column ? sortByRank(column.tasks) : [];
+  const lowerBound = tasks.length ? tasks[tasks.length - 1].rank : first();
+  try {
+    return lowerBound < last() ? between(lowerBound, last()) : lowerBound;
+  } catch {
+    return lowerBound;
+  }
+}
+
+export interface CreateTaskInput {
+  columnId: string;
+  title: string;
+  description?: string;
+}
+
+/**
+ * `POST /columns/:id/tasks` with an optimistic insert (frontend ROADMAP
+ * Phase 9) — the tempId + `pending` + swap-in-place shape `useCreateBoard`
+ * established for exactly this reason (PLAN §6).
+ */
+export function useCreateTask(boardId: string) {
+  const qc = useQueryClient();
+
+  return useMutation<
+    Task,
+    Error,
+    CreateTaskInput,
+    { previousBoard?: Board; id: string }
+  >({
+    mutationFn: ({ columnId, title, description }) =>
+      post<Task>(`/api/v1/columns/${columnId}/tasks`, { title, description }),
+
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: boardKey(boardId) });
+      const previousBoard = qc.getQueryData<Board>(boardKey(boardId));
+      const id = tempTaskId();
+
+      if (previousBoard) {
+        const now = new Date().toISOString();
+        const placeholder: Task = {
+          id,
+          columnId: input.columnId,
+          boardId,
+          title: input.title,
+          description: input.description?.trim() ? input.description : null,
+          rank: appendRank(previousBoard, input.columnId),
+          version: 0,
+          createdAt: now,
+          updatedAt: now,
+          pending: true,
+        };
+        qc.setQueryData<Board>(
+          boardKey(boardId),
+          appendTaskToColumn(previousBoard, input.columnId, placeholder)
+        );
+      }
+
+      return { previousBoard, id };
+    },
+
+    onError: (_error, _input, ctx) => {
+      if (ctx?.previousBoard) qc.setQueryData(boardKey(boardId), ctx.previousBoard);
+      toast.error("Could not add that card.");
+    },
+
+    onSuccess: (task, _input, ctx) => {
+      qc.setQueryData<Board>(boardKey(boardId), (old) =>
+        old ? replaceTaskId(old, ctx.id, task) : old
+      );
+    },
+  });
+}
+
+export interface UpdateTaskInput {
+  taskId: string;
+  title: string;
+  description?: string;
+}
+
+/** `PATCH /tasks/:id` — title/description only (PLAN §3); never touches
+ *  `rank`/`columnId`/`version`, which stay the move endpoint's job above. */
+export function useUpdateTask(boardId: string) {
+  const qc = useQueryClient();
+
+  return useMutation<Task, Error, UpdateTaskInput, { previousBoard?: Board }>({
+    mutationFn: ({ taskId, title, description }) =>
+      patch<Task>(`/api/v1/tasks/${taskId}`, { title, description }),
+
+    onMutate: async ({ taskId, title, description }) => {
+      await qc.cancelQueries({ queryKey: boardKey(boardId) });
+      const previousBoard = qc.getQueryData<Board>(boardKey(boardId));
+      if (previousBoard) {
+        qc.setQueryData<Board>(
+          boardKey(boardId),
+          patchTaskFields(previousBoard, taskId, {
+            title,
+            description: description?.trim() ? description : null,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      }
+      return { previousBoard };
+    },
+
+    onError: (_error, _vars, ctx) => {
+      if (ctx?.previousBoard) qc.setQueryData(boardKey(boardId), ctx.previousBoard);
+      toast.error("Could not save that card.");
+    },
+
+    onSuccess: (task) => {
+      qc.setQueryData<Board>(boardKey(boardId), (old) =>
+        old ? patchTaskFields(old, task.id, task) : old
+      );
+    },
+  });
+}
+
+/** `DELETE /tasks/:id` — no undo (PLAN §6), which is why the UI gates this
+ *  behind a confirm dialog rather than firing on a bare click. */
+export function useDeleteTask(boardId: string) {
+  const qc = useQueryClient();
+
+  return useMutation<void, Error, string, { previousBoard?: Board }>({
+    mutationFn: (taskId) => del(`/api/v1/tasks/${taskId}`),
+
+    onMutate: async (taskId) => {
+      await qc.cancelQueries({ queryKey: boardKey(boardId) });
+      const previousBoard = qc.getQueryData<Board>(boardKey(boardId));
+      if (previousBoard) {
+        qc.setQueryData<Board>(boardKey(boardId), removeTaskFromBoard(previousBoard, taskId));
+      }
+      return { previousBoard };
+    },
+
+    onError: (_error, _taskId, ctx) => {
+      if (ctx?.previousBoard) qc.setQueryData(boardKey(boardId), ctx.previousBoard);
+      toast.error("Could not delete that card.");
+    },
+  });
 }

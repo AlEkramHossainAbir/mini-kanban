@@ -7,19 +7,23 @@ import {
   defaultDropAnimationSideEffects,
   type DropAnimation,
 } from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import Link from "next/link";
 import { useState } from "react";
+import { AddColumnButton } from "@/components/board/AddColumnButton";
 import { BoardColumn } from "@/components/board/BoardColumn";
 import { BoardHeader } from "@/components/board/BoardHeader";
 import { BoardSkeleton } from "@/components/board/BoardSkeleton";
+import { ColumnDragOverlay } from "@/components/board/ColumnDragOverlay";
 import { DragOverlayCard } from "@/components/board/DragOverlayCard";
+import { EditTaskModal } from "@/components/board/EditTaskModal";
 import { ShareModal } from "@/components/board/ShareModal";
-import { useBoardDnd } from "@/components/board/useBoardDnd";
+import { columnSortId, useBoardDnd } from "@/components/board/useBoardDnd";
 import { Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useBoard } from "@/lib/board";
 import { useBoardMembers } from "@/lib/members";
-import { sortByRank } from "@/lib/rank";
+import type { Task } from "@/lib/types";
 
 /** 340ms `--ease-settle`, exact (`DESIGN §5`/§6) — not the dnd-kit default,
  *  which is the direction's signature "leaves the folder, tips, settles"
@@ -38,15 +42,17 @@ function isDoneColumn(title: string): boolean {
 }
 
 /**
- * The board view (frontend ROADMAP Phase 7 adds drag-and-drop on top of
- * Phase 6's read-only shell; task/column CRUD is still Phase 9).
- * `useQuery(['board', id])` via `useBoard`; columns and tasks are re-sorted
- * client-side by `sortByRank`, the one sort in the app outside an active
- * drag (PLAN §6) — `useBoardDnd` is what supplies the live order during one.
+ * The board view (frontend ROADMAP Phase 7 added drag-and-drop on top of
+ * Phase 6's read-only shell; Phase 9 adds task/column CRUD and column
+ * reordering on top of that). `useQuery(['board', id])` via `useBoard`;
+ * `useBoardDnd` supplies render order for both columns and tasks — plain
+ * rank order outside an active drag, the live drag preview during one
+ * (PLAN §6's "the one sort in the app," now one dimension wider).
  */
 export default function BoardPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const [sharing, setSharing] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const { data: board, isLoading, isError, error, refetch, isRefetching } =
     useBoard(id);
   // Fetched alongside the board (not gated behind opening Share) so the
@@ -107,8 +113,12 @@ export default function BoardPage({ params }: { params: { id: string } }) {
   // `data` through them — this is that narrowing, not a real fallback path.
   if (!board) return null;
 
-  const columns = sortByRank(board.columns ?? []);
+  const columns = dnd.orderedColumns(board);
   const isOwner = board.role === "OWNER";
+  // VIEWER gets a read-only board (PLAN §4) — the server is the real gate on
+  // every mutating route; this only decides whether Phase 9's affordances
+  // (add/rename/delete, column drag) render at all.
+  const canEdit = board.role === "OWNER" || board.role === "EDITOR";
 
   const activeTaskColumn = dnd.activeTask
     ? board.columns?.find((c) => c.id === dnd.activeTask?.columnId)
@@ -135,21 +145,36 @@ export default function BoardPage({ params }: { params: { id: string } }) {
       >
         {/* The board's own horizontal scroll container — deliberately never
             the page's, so a mobile swipe across columns can't fight a drag
-            (PLAN §6, DESIGN §4.1). */}
+            (PLAN §6, DESIGN §4.1). One flat `SortableContext` over the
+            column ids (frontend ROADMAP Phase 9) sits alongside each
+            column's own vertical task context — the two never overlap
+            because a column's own drag-handle id is prefixed (`columnSortId`,
+            `useBoardDnd`), so there's no id collision between the two
+            contexts. */}
         <div className="mt-6 flex gap-[14px] overflow-x-auto px-[30px] pb-8">
-          {columns.length === 0 ? (
-            <p className="font-courier text-[12.5px] text-[rgba(255,240,220,.6)]">
-              no columns filed yet
-            </p>
-          ) : (
-            columns.map((column) => (
-              <BoardColumn
-                key={column.id}
-                column={column}
-                tasks={dnd.tasksForColumn(column.id)}
-              />
-            ))
-          )}
+          <SortableContext
+            items={columns.map((c) => columnSortId(c.id))}
+            strategy={horizontalListSortingStrategy}
+          >
+            {columns.length === 0 ? (
+              <p className="font-courier text-[12.5px] text-[rgba(255,240,220,.6)]">
+                no columns filed yet
+              </p>
+            ) : (
+              columns.map((column) => (
+                <BoardColumn
+                  key={column.id}
+                  column={column}
+                  tasks={dnd.tasksForColumn(column.id)}
+                  boardId={id}
+                  canEdit={canEdit}
+                  onEditTask={setEditingTask}
+                />
+              ))
+            )}
+          </SortableContext>
+
+          {canEdit && <AddColumnButton boardId={id} />}
         </div>
 
         <DragOverlay dropAnimation={dropAnimation}>
@@ -158,6 +183,8 @@ export default function BoardPage({ params }: { params: { id: string } }) {
               task={dnd.activeTask}
               done={isDoneColumn(activeTaskColumn?.title ?? "")}
             />
+          ) : dnd.activeColumn ? (
+            <ColumnDragOverlay column={dnd.activeColumn} />
           ) : null}
         </DragOverlay>
       </DndContext>
@@ -167,6 +194,13 @@ export default function BoardPage({ params }: { params: { id: string } }) {
         open={sharing}
         onClose={() => setSharing(false)}
         isOwner={isOwner}
+      />
+
+      <EditTaskModal
+        task={editingTask}
+        boardId={id}
+        open={editingTask !== null}
+        onClose={() => setEditingTask(null)}
       />
     </div>
   );

@@ -23,6 +23,10 @@ export interface Task {
   version: number;
   createdAt: string;
   updatedAt: string;
+  /** Client-only: set on the placeholder row an optimistic create inserts
+   *  (frontend ROADMAP Phase 9), cleared when the server's real row is
+   *  swapped in. Never sent to the API. */
+  pending?: boolean;
 }
 
 export interface Column {
@@ -31,6 +35,8 @@ export interface Column {
   title: string;
   rank: string;
   tasks: Task[];
+  /** Client-only, same contract as `Task.pending` above. */
+  pending?: boolean;
 }
 
 export interface BoardMember {

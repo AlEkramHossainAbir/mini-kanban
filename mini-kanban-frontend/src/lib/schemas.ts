@@ -60,3 +60,37 @@ export const addMemberSchema = z.object({
 });
 
 export type AddMemberValues = z.infer<typeof addMemberSchema>;
+
+/**
+ * Mirrors CreateTaskDto/UpdateTaskDto (backend `src/tasks/dto/*.ts`): title
+ * 1..200, description optional and ≤5000. Shared by the task composer and
+ * the edit modal (frontend ROADMAP Phase 9) — both send the same shape.
+ */
+export const taskSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, "Give the card a title")
+    .max(200, "Title must be 200 characters or fewer"),
+  description: z
+    .string()
+    .trim()
+    .max(5000, "Description must be 5000 characters or fewer")
+    .optional(),
+});
+
+export type TaskValues = z.infer<typeof taskSchema>;
+
+/**
+ * Mirrors CreateColumnDto/UpdateColumnDto (backend
+ * `src/columns/dto/*.ts`): title 1..200 — the only field either accepts.
+ */
+export const columnTitleSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, "Give the column a name")
+    .max(200, "Name must be 200 characters or fewer"),
+});
+
+export type ColumnTitleValues = z.infer<typeof columnTitleSchema>;

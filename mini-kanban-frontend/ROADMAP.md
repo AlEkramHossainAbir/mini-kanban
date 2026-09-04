@@ -432,10 +432,61 @@ server's authoritative state, confirmed by the server's `version` having advance
 
 ## Phase 9 — Task & column CRUD (~1.5 h) · *Day 3*
 
-- [ ] Add task (inline composer at the column foot), edit (modal or inline), delete (confirm dialog — no undo, PLAN §6)
-- [ ] Add / rename / delete column; drag columns via `PATCH /columns/:id/move`
-- [ ] **Optimistic create uses a `tempId` + `pending` flag, then swaps temp → real id in place** — appending instead of swapping is how you get the duplicate-card bug through the create path (PLAN §6)
-- [ ] Hide mutation affordances for `VIEWER` — while remembering the server is the real gate (PLAN §4)
+- [x] Add task (inline composer at the column foot), edit (modal or inline), delete (confirm dialog — no undo, PLAN §6)
+- [x] Add / rename / delete column; drag columns via `PATCH /columns/:id/move`
+- [x] **Optimistic create uses a `tempId` + `pending` flag, then swaps temp → real id in place** — appending instead of swapping is how you get the duplicate-card bug through the create path (PLAN §6)
+- [x] Hide mutation affordances for `VIEWER` — while remembering the server is the real gate (PLAN §4)
+
+Implementation notes:
+
+- **Task composer** (`TaskComposer.tsx`) is title-only and stays open after each submit — a
+  description is added afterwards via the edit modal, the same "create now, refine later" shape
+  as filing a physical index card. **Edit** (`EditTaskModal.tsx`) is a modal, `react-hook-form` +
+  `taskSchema` (mirrors `CreateTaskDto`/`UpdateTaskDto`'s 200/5000-char limits), with **Delete**
+  routed through a nested `ConfirmDialog` step rather than firing on the modal's own button — task
+  deletion has no undo (PLAN §6). All three (`useCreateTask`/`useUpdateTask`/`useDeleteTask`,
+  `src/lib/tasks.ts`) follow the same cancel-first/snapshot/apply/rollback shape `useMoveTask`
+  already established.
+- **Column CRUD** (`src/lib/columns.ts` — new file) mirrors the task hooks exactly: `useCreateColumn`
+  with the tempId/`pending`/swap-in-place insert, `useRenameColumn` (inline edit in the tab itself,
+  no modal — Enter/blur commits, Escape cancels), `useDeleteColumn` behind the same `ConfirmDialog`
+  pattern (cascades its tasks server-side, no undo).
+- **Column drag** (`PATCH /columns/:id/move`) extends `useBoardDnd` in parallel with the existing
+  task-drag state rather than replacing any of it: a column's tab is sortable under its own
+  `col:`-prefixed id (`columnSortId`) inside one flat, board-wide `SortableContext`
+  (`horizontalListSortingStrategy`) — the prefix exists because a column's tray is *also* a
+  registered droppable (for tasks) at the bare column id, and `useSortable` would otherwise collide
+  with it. `useMoveColumn` mirrors `useMoveTask`'s optimistic-write/rollback shape minus the
+  version-conflict machinery (`Column` has no `version`, PLAN §3).
+- **One real bug found and fixed along the way**, the same way Phase 7 found its blank-title bug:
+  a column's tab (33px) and its own tray (218px+) are both registered droppables at the same
+  screen position, and plain `closestCorners` — correct for task drag (DESIGN §6) — runs over
+  *every* droppable regardless of what's being dragged. Verified live (Playwright + Chromium, an
+  `aria-live` region reading the raw `over` id mid-drag): dragging a column reliably resolved to a
+  neighbouring **tray's** plain id instead of the target tab whenever the tray's corner was
+  marginally nearer, which `handleDragEnd`'s `isColumnSortId` guard correctly rejected as "not a
+  column" — so the drop silently no-op'd instead of reordering. Fixed by scoping collision
+  detection (`useBoardDnd`'s `collisionDetection`): when the active item is a column, the candidate
+  droppable set is filtered down to just other columns' own tab ids before calling `closestCorners`;
+  a task drag is unaffected and still considers every droppable, including empty trays.
+- **`pending` extended to `Column`** (`src/lib/types.ts`), same contract as `Board`/`Task`'s
+  existing flag — a placeholder column can't yet be renamed, deleted, or dragged (no real id to
+  send), so `BoardColumn` disables all three while `column.pending` is true and shows `filing…` in
+  the tab, matching `BoardCard`'s treatment of a pending board.
+
+**Verified in a real browser** (Playwright + Chromium, against the live backend, seeding a
+board/columns/task directly via the API, then driving the UI): the full loop — add a card via the
+composer, open and edit it, delete it via the confirm dialog, add a new column, rename an existing
+one inline, delete another, then drag-reorder the remaining two columns — reflects correctly at
+every step and the reordered column order survives a hard reload (persisted server-side, not just
+the optimistic cache). A `VIEWER` session on the same board sees none of the add/rename/delete
+affordances and no column-drag handles, while still reading the board's existing cards normally.
+`npx tsc --noEmit`, `npm run lint` and `npm run build` all clean.
+
+> **Budget note carried forward from Phase 5/6/7:** `/boards/[id]` now ships **230 kB** First Load
+> JS, up from 206 kB before this phase's new components (composer, add-column, edit/confirm
+> modals, column-drag wiring). `DESIGN §8`'s < 200KB budget is Phase 11's pass, not this one's —
+> already over budget as of Phase 5 and only tracked here, not fixed.
 
 ---
 

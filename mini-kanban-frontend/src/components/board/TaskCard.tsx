@@ -61,6 +61,7 @@ function TaskCardImpl({
   done = false,
   sortable = true,
   lifted = false,
+  onOpen,
 }: {
   task: Task;
   done?: boolean;
@@ -68,7 +69,19 @@ function TaskCardImpl({
   /** True only for the static copy inside `<DragOverlay>` — always "lifted",
    *  since it exists only while a drag is in flight. */
   lifted?: boolean;
+  /** Opens the edit dialog (frontend ROADMAP Phase 9). Omitted for a VIEWER
+   *  (`BoardColumn` decides that) and for the `<DragOverlay>` copy, which
+   *  isn't interactive. A plain click never starts a drag — `useSortable`'s
+   *  4px activation distance (DESIGN §6) and dnd-kit's own click-after-drag
+   *  suppression both cover that — so wiring `onClick` alongside the drag
+   *  listeners is safe. */
+  onOpen?: () => void;
 }) {
+  // A placeholder row from an optimistic create (frontend ROADMAP Phase 9)
+  // has no real id yet — it can't be dragged (a move would target a temp id
+  // the server has never heard of) or opened for edit (nothing to PATCH).
+  const pending = task.pending === true;
+
   const {
     attributes,
     listeners,
@@ -76,14 +89,22 @@ function TaskCardImpl({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id, disabled: !sortable });
+  } = useSortable({
+    id: task.id,
+    disabled: !sortable || pending,
+    data: { type: "task" },
+  });
+
+  const clickable = Boolean(onOpen) && !pending;
 
   return (
     <article
       ref={sortable ? setNodeRef : undefined}
       {...(sortable ? attributes : { tabIndex: 0 })}
       {...(sortable ? listeners : {})}
-      className="relative rounded-card border border-card-edge bg-card px-[13px] pb-[11px] pt-[29px] shadow-card"
+      onClick={clickable ? onOpen : undefined}
+      aria-busy={pending || undefined}
+      className={`relative rounded-card border border-card-edge bg-card px-[13px] pb-[11px] pt-[29px] shadow-card${clickable ? " cursor-pointer" : ""}`}
       style={{
         backgroundImage:
           "linear-gradient(rgba(178,66,52,.5) 0 1px, transparent 1px), repeating-linear-gradient(rgba(47,92,134,.08) 0 1px, transparent 1px 21px)",
@@ -92,7 +113,7 @@ function TaskCardImpl({
         // The dragged card's source position stays in flow as the drop
         // placeholder, at reduced opacity (DESIGN §6) — the lifted copy
         // itself renders separately, in `DragOverlayCard`.
-        opacity: isDragging ? 0.4 : done ? 0.7 : undefined,
+        opacity: isDragging ? 0.4 : pending ? 0.6 : done ? 0.7 : undefined,
         transform: sortable ? CSS.Transform.toString(transform) : undefined,
         transition: sortable ? transition : undefined,
         // Only alive while this exact card is being dragged (DESIGN §5
@@ -108,7 +129,7 @@ function TaskCardImpl({
         style={{ opacity: isDragging || lifted ? 1 : 0 }}
       />
       <span className="absolute left-[13px] top-[5px] font-courier text-[9.5px] font-bold uppercase tracking-[.14em] text-faint">
-        filed {shortDate(task.createdAt)}
+        {pending ? "filing…" : `filed ${shortDate(task.createdAt)}`}
       </span>
 
       <h3
@@ -149,6 +170,7 @@ export const TaskCard = memo(TaskCardImpl, (prev, next) => {
     prev.task.id === next.task.id &&
     prev.task.rank === next.task.rank &&
     prev.task.version === next.task.version &&
+    prev.task.pending === next.task.pending &&
     prev.task.title === next.task.title &&
     prev.task.description === next.task.description &&
     prev.task.updatedAt === next.task.updatedAt
