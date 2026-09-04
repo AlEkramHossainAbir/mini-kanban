@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { del, patch, post } from "./api";
 import { boardKey } from "./board";
 import { between, first, last, sortByRank } from "./rank";
-import type { Board, Column } from "./types";
+import type { Board, Column, Task } from "./types";
 
 /**
  * Column CRUD + reorder (frontend ROADMAP Phase 9). Mirrors `src/lib/
@@ -42,23 +42,56 @@ function appendColumn(board: Board, column: Column): Board {
 }
 
 /** Swaps a temp-id placeholder for the server's real row, in place — the
- *  "swap, never append" rule (PLAN §6). */
+ *  "swap, never append" rule (PLAN §6).
+ *
+ *  Also drops any *other* row already sitting under `real.id` first
+ *  (frontend ROADMAP Phase 10, mirroring `replaceTaskId`'s fix in
+ *  `tasks.ts`): the WebSocket `column.created` echo of this very create can
+ *  land before this mutation's own `onSuccess`, leaving both the tempId
+ *  placeholder and the real row in the cache at once otherwise. */
 function replaceColumnId(board: Board, tempId: string, real: Column): Board {
   return {
     ...board,
-    columns: (board.columns ?? []).map((c) => (c.id === tempId ? real : c)),
+    columns: (board.columns ?? [])
+      .filter((c) => c.id !== real.id)
+      .map((c) => (c.id === tempId ? real : c)),
   };
 }
 
-function patchColumnFields(board: Board, columnId: string, fields: Partial<Column>): Board {
+export function patchColumnFields(board: Board, columnId: string, fields: Partial<Column>): Board {
   return {
     ...board,
     columns: (board.columns ?? []).map((c) => (c.id === columnId ? { ...c, ...fields } : c)),
   };
 }
 
-function removeColumnFromBoard(board: Board, columnId: string): Board {
+export function removeColumnFromBoard(board: Board, columnId: string): Board {
   return { ...board, columns: (board.columns ?? []).filter((c) => c.id !== columnId) };
+}
+
+/**
+ * True upsert by column id — insert-or-patch, unlike `patchColumnFields`
+ * which only ever touches a column the cache already has. Used solely by
+ * the WebSocket reconciler (frontend ROADMAP Phase 10) for `column.created`,
+ * where the event may be the first the client has ever heard of this column
+ * (another user's create). The server's `column.created` payload carries no
+ * `tasks` array (a brand-new column can't hold one yet); if the cache
+ * already knows this column (this client's own optimistic create, or a
+ * `column.created` arriving twice), its existing `tasks` are preserved
+ * rather than clobbered.
+ */
+export function upsertOrInsertColumn(
+  board: Board,
+  column: Omit<Column, "tasks"> & { tasks?: Task[] }
+): Board {
+  const existing = (board.columns ?? []).find((c) => c.id === column.id);
+  if (existing) {
+    return patchColumnFields(board, column.id, { title: column.title, rank: column.rank });
+  }
+  return {
+    ...board,
+    columns: [...(board.columns ?? []), { ...column, tasks: column.tasks ?? [] }],
+  };
 }
 
 /** Reorders `board.columns` to `orderedIds`' order. Any column the caller's

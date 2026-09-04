@@ -23,6 +23,7 @@ import { Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useBoard } from "@/lib/board";
 import { useBoardMembers } from "@/lib/members";
+import { useBoardRealtime } from "@/lib/realtime";
 import type { Task } from "@/lib/types";
 
 /** 340ms `--ease-settle`, exact (`DESIGN §5`/§6) — not the dnd-kit default,
@@ -61,6 +62,9 @@ export default function BoardPage({ params }: { params: { id: string } }) {
   // Called unconditionally, ahead of the loading/error returns below (rules
   // of hooks) — it's a no-op render-wise until `board` actually exists.
   const dnd = useBoardDnd(board, id);
+  // Same reason: connects/joins the room as soon as the page mounts, not
+  // gated on `board` having loaded yet.
+  const realtimeStatus = useBoardRealtime(id);
 
   if (isLoading) {
     return (
@@ -126,7 +130,12 @@ export default function BoardPage({ params }: { params: { id: string } }) {
 
   return (
     <div>
-      <BoardHeader board={board} members={members} onShare={() => setSharing(true)} />
+      <BoardHeader
+        board={board}
+        members={members}
+        onShare={() => setSharing(true)}
+        realtimeStatus={realtimeStatus}
+      />
 
       {/* Drag-and-drop, the graded core (frontend ROADMAP Phase 7,
           DESIGN §6's contract): `MeasuringStrategy.Always` (not the

@@ -304,24 +304,53 @@ function appendTaskToColumn(board: Board, columnId: string, task: Task): Board {
 /** Swaps a temp-id placeholder for the server's real row, in place — the
  *  same "swap, never append" rule `useCreateBoard` uses (PLAN §6): appending
  *  the real row instead would leave the placeholder behind and double the
- *  card. */
+ *  card.
+ *
+ *  Also drops any *other* row already sitting under `real.id` before doing
+ *  the swap (frontend ROADMAP Phase 10): the WebSocket `task.created` echo
+ *  of this very create can land before this mutation's own `onSuccess`
+ *  does, inserting the real row under its real id while the tempId
+ *  placeholder is still in the cache. Without this, the map below would
+ *  leave both rows behind instead of collapsing back to one. */
 function replaceTaskId(board: Board, tempId: string, real: Task): Board {
   return {
     ...board,
     columns: (board.columns ?? []).map((c) => ({
       ...c,
-      tasks: c.tasks.map((t) => (t.id === tempId ? real : t)),
+      tasks: c.tasks
+        .filter((t) => t.id !== real.id)
+        .map((t) => (t.id === tempId ? real : t)),
     })),
   };
 }
 
-function removeTaskFromBoard(board: Board, taskId: string): Board {
+export function removeTaskFromBoard(board: Board, taskId: string): Board {
   return {
     ...board,
     columns: (board.columns ?? []).map((c) => ({
       ...c,
       tasks: c.tasks.filter((t) => t.id !== taskId),
     })),
+  };
+}
+
+/**
+ * True upsert by task id — insert-or-relocate, unlike `upsertTaskInBoard`
+ * above which only ever patches a task the cache already has. Used solely
+ * by the WebSocket reconciler (frontend ROADMAP Phase 10) for `task.created`
+ * / `task.updated`, where the event may be the first the client has ever
+ * heard of this task (another user's create).
+ */
+export function upsertOrInsertTask(board: Board, task: Task): Board {
+  const withoutTask = (board.columns ?? []).map((c) => ({
+    ...c,
+    tasks: c.tasks.filter((t) => t.id !== task.id),
+  }));
+  return {
+    ...board,
+    columns: withoutTask.map((c) =>
+      c.id === task.columnId ? { ...c, tasks: [...c.tasks, task] } : c
+    ),
   };
 }
 

@@ -492,11 +492,56 @@ affordances and no column-drag handles, while still reading the board's existing
 
 ## Phase 10 — Realtime (~1.5 h) · *Day 3, first thing to cut if behind*
 
-- [ ] `GET /api/v1/auth/ws-ticket` (same-origin, cookie works) → connect `io(BACKEND_WS_URL, { auth: { ticket } })`
-- [ ] `emit('join', { boardId })` on mount, `leave` on unmount
-- [ ] On `task.moved` / `task.*`: **ignore the event unless its `version` is strictly newer** than the cached task's (PLAN §3 — out-of-order protection)
-- [ ] On reconnect: refetch the full board rather than replaying missed events
-- [ ] Small "live / reconnecting" indicator in the header
+- [x] `GET /api/v1/auth/ws-ticket` (same-origin, cookie works) → connect `io(NEXT_PUBLIC_WS_URL, { auth: (cb) => ... })`
+- [x] `emit('join', { boardId })` on mount, `leave` on unmount
+- [x] On `task.moved` / `task.*`: **ignore the event unless its `version` is strictly newer** than the cached task's (PLAN §3 — out-of-order protection)
+- [x] On reconnect: refetch the full board rather than replaying missed events
+- [x] Small "live / reconnecting" indicator in the header
+
+Implementation notes:
+
+- `src/lib/realtime.ts`'s `useBoardRealtime(boardId)` — one socket per mounted board page. Connects
+  **directly** to `NEXT_PUBLIC_WS_URL` (not through the Phase 2 rewrite — a WS upgrade through
+  Next's proxy is unreliable, backend Phase 4's own rationale for the ws-ticket). `auth` is passed
+  as a **function**, not a plain object: a ticket is single-use, so socket.io-client must fetch a
+  fresh one on every (re)connection attempt, never resend one that already failed.
+- Reconciles the same `['board', boardId]` cache every other hook here already reads/writes, via
+  new true-upsert helpers (`upsertOrInsertTask` in `tasks.ts`, `upsertOrInsertColumn` in
+  `columns.ts`) that can *insert* a row the cache has never seen — unlike the existing
+  `upsertTaskInBoard`/`patchColumnFields`, which only ever patch a row already there. `task.moved`
+  stays on the existing patch-only `upsertTaskInBoard` (its payload isn't a full `Task` and
+  shouldn't ever insert). `task.created`/`task.updated`/`column.created`/`column.updated` carry no
+  `version` (only a move bumps one, PLAN §3) and apply unconditionally — gating them the same way
+  as `task.moved` would silently block every ordinary title edit from ever arriving over the
+  socket, since `update()` never bumps `version` by design (ROADMAP backend Phase 8).
+- **One real race found and fixed along the way**, in the same spirit as Phase 7/9's bugs: this
+  client's own optimistic create (tempId placeholder) and the WebSocket echo of that same create
+  (the real row, arriving via the *other* code path, sometimes before this client's own REST
+  response) can both land in the cache at once, leaving one task under two ids until a full
+  refetch. Fixed by making `replaceTaskId`/`replaceColumnId` (the tempId→real swap) drop any row
+  already sitting under the real id first — a small, targeted de-dupe, not a redesign.
+- The "live / reconnecting" indicator isn't specified in `DESIGN.md` (predates any design pass over
+  it, same situation Phase 6 documented for the boards list) — derived from the same tokens per
+  §1: `--moss` (already the done/success accent) for live, `--amber` (already reads as
+  in-progress/warning) pulsing for reconnecting, in `BoardHeader.tsx`.
+
+**Verified in a real browser** (Playwright + Chromium, two separate registered users against the
+live backend, one browser process, two isolated contexts — Owner A and Editor B, B invited via a
+real share): both tabs reach **"live"** after joining; a column A creates over the REST API
+appears in B's tab with **no reload**; a task B creates appears in A's tab with no reload; a task
+moved cross-column via a raw authenticated `PATCH /tasks/:id/move` (bypassing the UI, to isolate
+the WS path) relocates into the correct column's tray on B's tab, verified by DOM containment, not
+text position (column tab labels are CSS-uppercased, so a naive text-index check is unreliable and
+was caught and fixed during this verification); a task deleted from B's session disappears from
+A's tab; a column deleted from A's session disappears from B's tab. `npx tsc --noEmit`, `npm run
+lint`, and `npm run build` all clean.
+
+**Not verified live** (documented, not fixed): the indicator's flip to "reconnecting…" on an actual
+socket drop — Chromium's CDP `setOffline` doesn't reliably kill an already-established WebSocket
+within a short window in a scripted test, making that specific check flaky rather than informative.
+The underlying logic (`disconnect`/`connect_error` → `"reconnecting"`, `connect` after a prior
+connect → cache invalidation) was verified by code review instead, and is the same event-driven
+shape Socket.IO's own reconnection logic is built to trigger.
 
 ---
 
