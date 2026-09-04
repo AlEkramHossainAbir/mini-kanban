@@ -159,23 +159,27 @@ Order matters; each step needs the previous one's URL:
 
 Straight from the brief's *Submission & Deliverables*:
 
-- [ ] **Single repository** containing both `mini-kanban-backend/` and `mini-kanban-frontend/` directories — verified by a fresh `git clone` (Phase 0)
-- [ ] **`README.md`** with step-by-step local setup **and sample environment variables** (Phase 4)
-- [ ] **`docker-compose.yml`** bringing up database + services with minimal setup (Phase 3)
-- [ ] **Deployment link** (optional) with working demo credentials (Phase 5)
+- [x] **Single repository** containing both `mini-kanban-backend/` and `mini-kanban-frontend/` directories — verified by a fresh `git clone` (Phase 0), re-verified 2026-09-04 via the `docker-bringup` skill: a genuine `git clone` into a scratch directory shows real files in both, not empty submodule folders
+- [x] **`README.md`** with step-by-step local setup **and sample environment variables** (Phase 4) — read in full 2026-09-04; quick start, no-Docker path, full env var block, API table, architecture summary and out-of-scope section are all present (the "stale, submodule-era README" note elsewhere in this repo's memory predates the actual rewrite — confirmed against the file itself, not the note)
+- [x] **`docker-compose.yml`** bringing up database + services with minimal setup (Phase 3) — re-verified 2026-09-04 end to end: fresh clone → `cp .env.example .env` → `docker compose up --build` (host ports remapped in the scratch copy only, since this machine's own dev servers hold 3000/4000/5432 — internal service-name networking, the thing actually under test, was untouched) → `db` healthy before `backend` started (6s gap, not a race) → `prisma migrate deploy` ran from the backend's own `CMD` against a genuinely empty database → `GET /api/v1/health` → `200`, `GET /login` → `200`, zero restarts, zero errors in `docker compose logs`. Torn down and images removed after.
+- [ ] **Deployment link** (optional) with working demo credentials (Phase 5) — deliberately not done: no Railway/Render/Neon/Vercel account is authenticated in this environment, and provisioning one is the user's call, not something to do unattended. See Phase 5.
 
-And against the *Core Requirements*:
+And against the *Core Requirements*, all re-verified live 2026-09-04 (via the `qa-checklist` skill, against the local dev stack, two real registered accounts, evidence inspected via the API response — not by UI appearance alone):
 
-- [ ] Registration + login with token-based auth
-- [ ] Boards have an owner and can be shared with other registered users
-- [ ] Users can only view/mutate boards, columns and tasks they have access to; cross-board access blocked
-- [ ] Full CRUD on boards, columns and tasks
-- [ ] Task Movement API handling **both** same-column reorder **and** cross-column move **to a specific position index**
-- [ ] Ordering is stable, accurate and conflict-free under concurrent moves
-- [ ] Interactive board view with working drag-and-drop
-- [ ] Full **PLAN §10** QA checklist run end-to-end, including the two-tab concurrency test
-- [ ] No secrets committed — `git log -p | grep -i secret` comes back clean
-- [ ] `docker compose up --build` verified one final time from a **fresh clone in a clean directory**
+- [x] Registration + login with token-based auth — plus the `/auth/login` 5/min throttle actually tripped (`429` with `Retry-After`) and a post-logout refresh-token replay was rejected `401 "Session revoked"` (real server-side revocation, not just cookie-clearing)
+- [x] Boards have an owner and can be shared with other registered users — share-by-email to a second account verified live
+- [x] Users can only view/mutate boards, columns and tasks they have access to; cross-board access blocked — a no-membership session got `403` on `PATCH /tasks/:id`, `PATCH /tasks/:id/move` and `GET /boards/:id` alike (and the task's title was confirmed unchanged afterwards); a `targetColumnId` on a different board got `400 INVALID_TARGET_COLUMN`; a WebSocket `join` for a board the connecting user has no membership on got `{error:"FORBIDDEN"}`, and a bogus/replayed ws-ticket got rejected at the handshake itself
+- [x] Full CRUD on boards, columns and tasks — exercised as fixtures for the checks above
+- [x] Task Movement API handling **both** same-column reorder **and** cross-column move **to a specific position index** — a `{"position":0}` payload with no neighbour ids landed the task first, and every sibling's `rank`/`version` was byte-for-byte unchanged
+- [x] Ordering is stable, accurate and conflict-free under concurrent moves — 5 concurrent `PATCH .../move` calls at the *same* task with the same stale `expectedVersion` produced exactly one `200` and four `409`s, `version` incremented exactly once; concurrent moves of *different* tasks in the same column both landed with no lost update
+- [x] Interactive board view with working drag-and-drop — live in a real Chromium browser (Playwright): same-column drag reorders with no blank/duplicated titles; a drop into a genuinely empty column lands there; dragging toward the viewport edge auto-scrolls (`scrollLeft` 0→722 while holding near the edge); a task created under throttled network conditions ends up as exactly one card, never two; 3 rapid re-drags of the same card settle on exactly one instance of it; intercepting the move request to simulate a dead backend rolls the card back to its exact pre-drag order and surfaces the `"Couldn't move that card"` toast; zero browser console errors throughout
+- [x] Full **PLAN §10** QA checklist run end-to-end, including the two-tab concurrency test — two isolated browser contexts (owner + an invited EDITOR), a task created in one appears in the other with no reload; keyboard-only lift/move/drop drives the `aria-live` region to read `Card "Task 2" moved to Backlog, position 2 of 4.`; a WS reconnect after a CDP-forced offline period leaves the "live" indicator correct and the board still rendering real data (the transient "reconnecting…" state itself stayed as hard to force live via CDP as frontend ROADMAP Phase 10 already documented — not re-litigated here)
+- [x] No secrets committed — `git log -p --all | grep -i secret` and a scan for the JWT/Postgres env var patterns across all history come back with only the documented placeholders (`kanban:kanban`, `replace-with-32+-random-bytes`); `.env` was never committed and stays gitignored
+- [x] `docker compose up --build` verified one final time from a **fresh clone in a clean directory** — same run as the `docker-compose.yml` box above
+
+QA fixture data from this pass (2 throwaway accounts, 2 boards prefixed `QA …`) is still sitting in
+the local dev Postgres — harmless, clearly labeled, left for the user to clear if they want a clean
+dev DB before submission.
 
 ---
 
