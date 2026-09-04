@@ -2,26 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Filing Room tokens — DESIGN §2, verbatim. Every value here is exact:
+   do not round them, "improve" them, or swap in a Tailwind default.
+   Single theme by decision, not omission — the board is a physical desk and
+   does not invert, so the scaffold's prefers-color-scheme block is deleted
+   rather than re-pointed. */
+:root{
+  /* desk */
+  --wood:#5E4736; --wood-hi:#6E5541; --wood-lo:#4A382B;
+  /* folders + tabs */
+  --manila:#D7C097; --manila-2:#C7AE83; --manila-ink:#4A3A22;
+  /* index cards */
+  --card:#FDFBF4; --card-2:#F6F1E4; --edge:#E0D6BE;
+  /* text on paper */
+  --ink:#231F1A; --pencil:#5D5449; --faint:#7C7365;
+  /* hairlines only, never text */
+  --hair:rgba(35,31,26,.09);
+  /* accents */
+  --rule:#B24234;   /* red header rule, errors, blocked, overdue */
+  --blue:#2F5C86;   /* primary action, links, undo */
+  --moss:#4A6B3C;   /* done, success */
+  --amber:#8A6414;  /* in progress, warnings */
+  /* motion */
+  --ease:cubic-bezier(.22,.85,.28,1);
+  --ease-settle:cubic-bezier(.16,1.24,.4,1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+body{
+  color:var(--ink);
+  background:
+    radial-gradient(1100px 640px at 16% -12%, var(--wood-hi), transparent 58%),
+    radial-gradient(900px 620px at 92% 112%, var(--wood-lo), transparent 60%),
+    repeating-linear-gradient(88deg, rgba(255,255,255,.018) 0 3px, rgba(0,0,0,.014) 3px 7px),
+    var(--wood);
+  background-attachment:fixed;
+  font-family:var(--font-archivo), system-ui, sans-serif;
+}
+
+/* DESIGN §7 — focus is never removed, only replaced. Manila ring on the wood
+   ground, blue on paper surfaces. */
+:focus-visible{
+  outline:2px solid var(--manila);
+  outline-offset:3px;
+}
+.on-paper :focus-visible,
+.on-paper:focus-visible{
+  outline:2px solid var(--blue);
+  outline-offset:2px;
+}
+
+/* DESIGN §5 rule 3 — reduced motion kills tilt, scale and overshoot, and
+   collapses reflow/drop to ≤1ms. Opacity fades may stay, capped at 100ms. */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;
+    scroll-behavior:auto !important;
   }
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+  .motion-fade{ transition-duration:100ms !important; }
 }

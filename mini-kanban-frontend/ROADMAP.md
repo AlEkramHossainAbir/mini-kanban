@@ -62,11 +62,11 @@ npm i @tanstack/react-query @tanstack/react-query-devtools \
       `lucide-react@1.40.0` (`^16.5.1 … ^19`), `@dnd-kit/core@6.3.1` + `@dnd-kit/sortable@10.0.0`
       (`>=16.8`), `@hookform/resolvers@5.9.1` (accepts `zod@^4`, installed `4.5.4`). `npm i`
       resolved with **zero `ERESOLVE` conflicts and no `--legacy-peer-deps`**.
-- [ ] Fonts are **Archivo + Courier Prime via `next/font/google`** (`DESIGN §3`) — not a `<link>`
-      tag, not a third family
-      *(deferred to Phase 3, which owns `src/app/layout.tsx` and re-lists this same item — the
-      scaffold's `localFont` Geist pair is still in place and gets replaced there, together with
-      the `globals.css` tokens, so the font swap and the palette land as one coherent pass.)*
+- [x] Fonts are **Archivo + Courier Prime via `next/font/google`** (`DESIGN §3`) — not a `<link>`
+      tag, not a third family. **Landed in Phase 3** with the rest of the token pass; the
+      scaffold's `localFont` Geist pair and `src/app/fonts/` were deleted. Verified in the served
+      CSS: `--font-archivo: '__Archivo_2aad3c', …` and `--font-courier: '__Courier_Prime_87c02c', …`
+      with self-hosted `@font-face` rules — exactly two families, no `<link>` to Google.
 - [x] **No further dependency** may be added for styling, icons or animation. The Filing Room look
       is CSS gradients and these packages only (`DESIGN §8`)
 
@@ -120,10 +120,8 @@ module.exports = {
 > on localhost and silently break login in production. Proxying keeps cookies first-party.
 > As a bonus, nothing about the API URL gets baked into the client bundle at build time.
 
-- [ ] Tailwind: set your palette + a `--radius` token in `tailwind.config.ts` now, so "premium" isn't a day-4 retrofit
-      *(deferred to Phase 3, which owns `tailwind.config.ts` and re-lists this same item — the full
-      `DESIGN §2` colour/radius/shadow/easing set lands there in one pass rather than being
-      half-applied here and rewritten a phase later.)*
+- [x] Tailwind: set your palette + a `--radius` token in `tailwind.config.ts` now, so "premium" isn't a day-4 retrofit
+      — **landed in Phase 3** as the full `DESIGN §2` colour/radius/shadow/easing set, in one pass.
 
 ---
 
@@ -132,30 +130,65 @@ module.exports = {
 **Do the tokens first** — every later phase styles against them, and retro-fitting a palette across
 a built board is how a design direction quietly turns into "close enough".
 
-- [ ] `src/app/globals.css` — replace the scaffold `:root` with the Filing Room tokens verbatim
-      (`DESIGN §2`), including the walnut `body` background. **Delete the scaffold's
-      `prefers-color-scheme` block** — this design is single-theme by decision, not by omission
-- [ ] `tailwind.config.ts` — the colour / radius / shadow / easing extensions from `DESIGN §2`
-- [ ] `src/app/layout.tsx` — `next/font/google` for Archivo + Courier Prime, exposed as CSS
-      variables (`DESIGN §3`)
-- [ ] `src/app/providers.tsx` — `QueryClientProvider` (`staleTime: 30_000`, `retry: 1`), Devtools in dev, `<Toaster />` from sonner
-- [ ] `src/lib/api.ts` — thin `fetch` wrapper: always `credentials: 'include'`, always sends the CSRF header `X-Requested-With: mini-kanban` on mutations (PLAN §5), throws a typed `ApiError` carrying `status` + body
-- [ ] **401 interceptor**: on `401`, call `/api/v1/auth/refresh` **once**, retry the original request, else redirect to `/login` (PLAN §1) — guard against refresh stampedes with a single shared in-flight promise
-- [ ] `src/lib/types.ts` — `Board`, `Column`, `Task` (with `version`), `BoardRole`
-- [ ] `src/components/ui/` — `Button`, `Input`, `Modal`, `Skeleton`, `Avatar`, styled per
-      `DESIGN §4.6`/`§4.7` (hand-rolled + Tailwind; a component library is not required)
-- [ ] Sonner `<Toaster />` themed as a manila slip (`DESIGN §4.5`) — position bottom-right
+- [x] `src/app/globals.css` — Filing Room tokens verbatim (`DESIGN §2`), walnut `body` background,
+      and the scaffold's `prefers-color-scheme` block **deleted**. Verified in the CSS the dev
+      server actually serves: `--wood:#5E4736`, `--manila:#D7C097`, `--faint:#7C7365` (the AA-safe
+      value, not the mockup's lighter grey) and `--ease-settle:cubic-bezier(.16,1.24,.4,1)` — exact,
+      not rounded. Also added `DESIGN §7`'s focus rings (manila on wood, blue on paper) and `§5`
+      rule 3's `prefers-reduced-motion` block.
+- [x] `tailwind.config.ts` — the colour / radius / shadow / easing extensions from `DESIGN §2`,
+      pointing at the CSS variables so each token has exactly one definition. Added the two font
+      families and `§5`'s named durations (`hover`/`reflow`/`settle` = 200/280/340ms).
+- [x] `src/app/layout.tsx` — `next/font/google` for Archivo + Courier Prime as CSS variables
+      (`DESIGN §3`); scaffold Geist fonts deleted.
+- [x] `src/app/providers.tsx` — `QueryClientProvider` (`staleTime: 30_000`), Devtools in dev,
+      `<Toaster />` from sonner. The client is created in `useState`, not at module scope, so a
+      server-side singleton can't leak one user's cache into another's. `retry` refined: never
+      retry a <500 `ApiError` (401 is the interceptor's job; 403/404 won't change), and **never
+      retry a mutation** — replaying a move after a `409` would fight PLAN §3's concurrency
+      contract instead of surfacing it.
+- [x] `src/lib/api.ts` — `fetch` wrapper: always `credentials: 'include'`, `X-Requested-With:
+      mini-kanban` on every mutation (PLAN §5), typed `ApiError` carrying `status` + body, and an
+      `isConflict` helper for the 409 path.
+- [x] **401 interceptor** — refresh once, retry, else redirect to `/login?next=…`. The single
+      shared in-flight promise is not just a de-dupe nicety: refresh tokens **rotate**, and the
+      backend treats reuse of a revoked token as theft and kills the whole family, so a stampede
+      would log the user out. Verified the endpoint it leans on: `POST /auth/refresh` through the
+      proxy returned `200` and re-issued both `mk_at` and `mk_rt`.
+- [x] `src/lib/types.ts` — `Board`, `Column`, `Task` (with `version`), `BoardRole`, `Paginated<T>`.
+- [x] `src/components/ui/` — `Button` (§4.6's three exact variants), `Input`, `Modal`, `Skeleton` +
+      `CardSkeleton` (§4.7, carrying the 21px ruling), `Avatar`. Modal traps focus at both Tab
+      ends, closes on Esc and restores focus to its opener (`DESIGN §7`).
+- [x] Sonner `<Toaster />` themed as a manila slip (`DESIGN §4.5`) — bottom-right, 3px `--blue`
+      left border, 2px radius, the exact `§4.5` shadow.
 
 ---
 
 ## Phase 4 — Auth pages (~1.5 h) · *Day 3*
 
-- [ ] `/register`, `/login` — `react-hook-form` + `zod`, inline field errors, disabled+spinner submit state
-- [ ] Redirect to `/boards` on success
-- [ ] `src/middleware.ts` — bounce unauthenticated users off `/boards/*` by checking the presence of the `mk_at` cookie *(presence only; the server is still the authority — PLAN §4)*
-- [ ] Header with user name + logout
+- [x] `/register`, `/login` — `react-hook-form` + `zod`, inline field errors, disabled+spinner
+      submit state. The zod schemas mirror the server DTOs exactly (email; password 8..72 — bcrypt's
+      silent truncation point, not an arbitrary cap; name 1..100). Both screens share one
+      `AuthForm`. Server errors map to the right field: `409` → "email already registered",
+      `401` → "email or password is incorrect", `429` → a throttle toast (the backend allows 5/min
+      on these two routes).
+- [x] Redirect to `/boards` on success — `router.replace`, so Back doesn't return to a completed
+      form. Register also logs in immediately afterwards, because `POST /auth/register` returns the
+      user but sets **no cookies** (backend Phase 4); without that second call the new user would
+      land on a login screen. The `?next=` param is honoured but rejected unless it starts with a
+      single `/` — otherwise it would be an open redirect.
+- [x] `src/middleware.ts` — presence-only `mk_at` check on `/boards/:path*` (PLAN §4: the server
+      stays the authority; a forged cookie passes here and then fails at the API).
+- [x] Header with user name + logout — `useMe()` + `useLogout()`; logout clears the query cache on
+      `onSettled` rather than `onSuccess`, so a failed logout can't leave a logged-in-looking shell.
 
 **Done when:** register → land on an empty boards list → refresh the page → still logged in.
+- [x] **Verified end to end against the running backend**: signed-out `GET /boards` → `307` to
+      `/login?next=%2Fboards`; `/login` + `/register` → `200`; `GET /` → `307` to `/boards`;
+      register → `201`, login → `200`, then `GET /boards` **with** the session cookie → `200`
+      rendering the shell, and the same request again (the "refresh the page" step) → `200`.
+      This also proves `QueryClientProvider` is mounted: `/boards` runs `useQuery` during SSR and
+      would have thrown "No QueryClient set" otherwise.
 
 ---
 

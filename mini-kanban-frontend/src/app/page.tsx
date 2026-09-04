@@ -1,7 +1,7 @@
+import { redirect } from "next/navigation";
+
+/** The app has no marketing page — send visitors to the board area, where
+ *  middleware decides whether they see it or /login. */
 export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="text-2xl font-semibold">Mini Kanban</h1>
-    </main>
-  );
+  redirect("/boards");
 }

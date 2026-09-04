@@ -219,6 +219,26 @@ last-owner demotion added **0** rows between them. `npm run test` (65 tests, 3 n
 
 ---
 
+## ⚠️ Open gap — CSRF header is sent but never checked
+
+PLAN §5 lists, as the CSRF defence: *"every mutating request additionally requires a custom header
+(e.g. `X-Requested-With`), which forces a CORS preflight"*. The **client half exists** — frontend
+`src/lib/api.ts` sends `X-Requested-With: mini-kanban` on every mutation — but **nothing on the
+server verifies it**, so it currently buys no protection.
+
+Found while verifying frontend Phase 3/4, and confirmed two ways:
+- `grep -rniE 'csrf|requested-with' src/` → **0 matches**
+- live probe: `POST /api/v1/boards` with a valid session cookie and **no** `X-Requested-With`
+  header returned **`201 Created`**
+
+`SameSite=Lax` still blocks classic cross-site form POSTs, so this is not wide open — but the
+second layer PLAN §5 claims is not actually there. Fix is small: a global `APP_GUARD` that rejects
+`POST`/`PATCH`/`PUT`/`DELETE` without the header, alongside `ThrottlerGuard` and `JwtAuthGuard` in
+`app.module.ts`. **Not done — deliberately left for review**, since it is a security decision and
+sits outside the frontend phase where it surfaced.
+
+---
+
 ## Phase 11 — Tests (~2–3 h) · *Day 4*
 
 Small on purpose — the four things a reviewer will actually probe:
