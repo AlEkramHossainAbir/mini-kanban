@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { BoardsModule } from './boards/boards.module';
+import { ColumnsModule } from './columns/columns.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { HealthController } from './health/health.controller';
@@ -17,6 +18,7 @@ import { HealthController } from './health/health.controller';
     PrismaModule,
     AuthModule,
     BoardsModule,
+    ColumnsModule,
   ],
   controllers: [HealthController],
   providers: [

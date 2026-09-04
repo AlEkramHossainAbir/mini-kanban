@@ -137,10 +137,12 @@ npx prisma studio          # eyeball the tables
 
 ## Phase 7 — Columns & the rank utility (~2 h) · *Day 2*
 
-- [ ] `src/tasks/rank.util.ts` — `between(a, b)`, `first()`, `last()`, `rebalance(ranks)`; **pure functions, zero I/O**
-- [ ] Unit-test it *before* wiring it up: midpoint, insert-at-start, insert-at-end, adjacent-strings, and a rebalance that preserves relative order
-- [ ] `POST /boards/:id/columns`, `PATCH /columns/:id`, `DELETE /columns/:id`
-- [ ] `PATCH /columns/:id/move` — same neighbour-id payload shape as task move (PLAN §3)
+- [x] `src/tasks/rank.util.ts` — `between(a, b)`, `first()`, `last()`, `rebalance(ranks)`; **pure functions, zero I/O**
+- [x] Unit-test it *before* wiring it up: midpoint, insert-at-start, insert-at-end, adjacent-strings, and a rebalance that preserves relative order — 17 tests in `rank.util.spec.ts`
+- [x] `POST /boards/:id/columns`, `PATCH /columns/:id`, `DELETE /columns/:id`
+- [x] `PATCH /columns/:id/move` — same neighbour-id payload shape as task move (PLAN §3); no `targetColumnId` (columns don't cross boards) and no `expectedVersion` (`Column` has no `version` column — that rigor is task move's job, Phase 8's graded core)
+
+**Verified live** against Postgres with two real users: create/rename/delete columns, cross-board 403, move via `position` and via neighbor ids, self-healing fallback to the sentinel boundary when a referenced neighbor id is stale. Along the way, found and fixed a real gap this exposed: `BoardsService.findOne()`'s nested `columns`/`tasks` `orderBy` was missing the `id` tiebreak PLAN §3 requires ("`ORDER BY rank, id`") — a live rank collision (expected/harmless per PLAN §3) made two columns' order nondeterministic until fixed. Also added `columns.service.spec.ts` to directly exercise the rebalance-trigger branch (mocked Prisma, a crafted >40-char boundary) since forcing it via pure repeated-insert-at-start over HTTP would need ~250+ round trips (confirmed the math: ~5.2 iterations per extra character at base-36, matching the ~10-char result actually observed after 45 real HTTP moves). Stress-tested with 47 real columns after heavy reordering: order still matches `sorted(ranks)` with duplicate ranks present, confirming id-tiebreak correctness at scale. `npm run test` (33 tests), `test:e2e`, and `lint` all clean.
 
 ---
 

@@ -94,7 +94,10 @@ export class BoardsService {
         createdAt: true,
         updatedAt: true,
         columns: {
-          orderBy: { rank: 'asc' },
+          // Ranks can collide (rare, harmless by design — PLAN §3); the id
+          // tiebreak is what keeps that deterministic instead of flapping
+          // between requests.
+          orderBy: [{ rank: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             boardId: true,
@@ -103,7 +106,7 @@ export class BoardsService {
             createdAt: true,
             updatedAt: true,
             tasks: {
-              orderBy: { rank: 'asc' },
+              orderBy: [{ rank: 'asc' }, { id: 'asc' }],
               select: {
                 id: true,
                 columnId: true,

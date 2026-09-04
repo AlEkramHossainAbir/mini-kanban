@@ -20,6 +20,8 @@ import {
 } from '../common/guards/board-access.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { PublicUser } from '../auth/public-user.type';
+import { ColumnsService } from '../columns/columns.service';
+import { CreateColumnDto } from '../columns/dto/create-column.dto';
 import { BoardsService } from './boards.service';
 import { AddMemberDto } from './dto/add-member.dto';
 import { CreateBoardDto } from './dto/create-board.dto';
@@ -32,7 +34,10 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 // `create` and `list` are the only two routes with no board yet to resolve.
 @Controller('boards')
 export class BoardsController {
-  constructor(private readonly boardsService: BoardsService) {}
+  constructor(
+    private readonly boardsService: BoardsService,
+    private readonly columnsService: ColumnsService,
+  ) {}
 
   @Post()
   create(@CurrentUser() user: PublicUser, @Body() dto: CreateBoardDto) {
@@ -63,6 +68,16 @@ export class BoardsController {
   @HttpCode(204)
   async remove(@Param('boardId') boardId: string): Promise<void> {
     await this.boardsService.remove(boardId);
+  }
+
+  @UseGuards(BoardAccessGuard, RolesGuard)
+  @RequireRole(BoardRole.EDITOR)
+  @Post(':boardId/columns')
+  createColumn(
+    @Param('boardId') boardId: string,
+    @Body() dto: CreateColumnDto,
+  ) {
+    return this.columnsService.create(boardId, dto);
   }
 
   @UseGuards(BoardAccessGuard, RolesGuard)
