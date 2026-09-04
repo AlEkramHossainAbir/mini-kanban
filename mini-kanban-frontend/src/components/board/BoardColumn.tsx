@@ -1,6 +1,7 @@
 "use client";
 
-import { sortByRank } from "@/lib/rank";
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { Column, Task } from "@/lib/types";
 import { TaskCard } from "./TaskCard";
 
@@ -25,18 +26,28 @@ function isDoneColumn(title: string): boolean {
 
 /**
  * A column: the angle-cut manila tab (`DESIGN §4.2`) over the tray
- * (`DESIGN §4.3`). Read-only for Phase 6 — no add/rename/delete/drag here,
- * those are Phase 7 (drag) and Phase 9 (column CRUD).
+ * (`DESIGN §4.3`). Drag lands here in Phase 7; add/rename/delete are still
+ * Phase 9 (column CRUD).
+ *
+ * `tasks` is passed in already ordered by the caller (`BoardPage`, via
+ * `useBoardDnd`) rather than derived here from `column.tasks` — mid-drag
+ * that order is the live cross-column preview, not plain rank order, and
+ * this component doesn't need to know the difference.
  *
  * The tray gets its own vertical scroll, capped independently of the
  * board's horizontal strip (`PLAN §6` / `DESIGN §4.1) — the two must never
  * share a scroll container, or a mobile swipe to see more columns fights a
  * vertical swipe to see more cards in one.
  */
-export function BoardColumn({ column }: { column: Column }) {
+export function BoardColumn({ column, tasks }: { column: Column; tasks: Task[] }) {
   const [from, to] = gradientFor(column.title);
-  const tasks = sortByRank(column.tasks);
   const done = isDoneColumn(column.title);
+  const taskIds = tasks.map((t) => t.id);
+
+  // The whole tray is the droppable, including when it holds zero cards
+  // (DESIGN §4.3) — the single most common dnd-kit Kanban bug is an empty
+  // column having nothing to hit.
+  const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
   return (
     <div className="flex w-[280px] flex-shrink-0 flex-col">
@@ -55,26 +66,31 @@ export function BoardColumn({ column }: { column: Column }) {
       </div>
 
       <div
-        className="-mt-px flex flex-col gap-[11px] rounded-tray border border-[rgba(255,255,255,.22)] p-3 shadow-tray"
+        ref={setNodeRef}
+        className="-mt-px flex flex-col gap-[11px] rounded-tray border p-3 shadow-tray transition-colors duration-200"
         style={{
-          background:
-            "linear-gradient(rgba(215,192,151,.26),rgba(215,192,151,.16))",
+          background: isOver
+            ? "linear-gradient(rgba(240,222,186,.4),rgba(240,222,186,.26))"
+            : "linear-gradient(rgba(215,192,151,.26),rgba(215,192,151,.16))",
+          borderColor: isOver ? "rgba(255,255,255,.42)" : "rgba(255,255,255,.22)",
           minHeight: 218,
           maxHeight: "calc(100vh - 300px)",
           overflowY: "auto",
         }}
       >
-        {tasks.length === 0 ? (
-          <div className="grid h-[78px] place-items-center rounded-[3px] border-[1.5px] border-dashed border-[rgba(255,247,230,.34)]">
-            <span className="font-courier text-[12px] text-[rgba(255,247,230,.6)]">
-              no cards filed
-            </span>
-          </div>
-        ) : (
-          tasks.map((task: Task) => (
-            <TaskCard key={task.id} task={task} done={done} />
-          ))
-        )}
+        <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
+          {tasks.length === 0 ? (
+            <div className="grid h-[78px] place-items-center rounded-[3px] border-[1.5px] border-dashed border-[rgba(255,247,230,.34)]">
+              <span className="font-courier text-[12px] text-[rgba(255,247,230,.6)]">
+                no cards filed
+              </span>
+            </div>
+          ) : (
+            tasks.map((task: Task) => (
+              <TaskCard key={task.id} task={task} done={done} />
+            ))
+          )}
+        </SortableContext>
       </div>
     </div>
   );

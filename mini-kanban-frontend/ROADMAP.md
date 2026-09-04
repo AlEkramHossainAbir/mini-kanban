@@ -333,28 +333,55 @@ for this phase. **Build on `dnd-kit`; do not hand-roll a drag engine.** The refe
 one only because an artifact cannot install packages; copying it would forfeit the keyboard sensor
 and the announcements, both of which are graded.
 
-- [ ] `DndContext` + `SortableContext` per column (`verticalListSortingStrategy`), `useSortable` on each card
-- [ ] Sensors — **split mouse from touch** (`DESIGN §6`, refines the single `PointerSensor` this
+- [x] `DndContext` + `SortableContext` per column (`verticalListSortingStrategy`), `useSortable` on each card
+- [x] Sensors — **split mouse from touch** (`DESIGN §6`, refines the single `PointerSensor` this
       roadmap originally specified): `MouseSensor` `{ distance: 4 }`, `TouchSensor`
       `{ delay: 200, tolerance: 5 }`, `KeyboardSensor` with `sortableKeyboardCoordinates`.
       A 200ms delay is needed on touch so scrolling isn't read as a drag; the same delay on a mouse
       just reads as lag
-- [ ] `measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}` — **not the default.**
+- [x] `measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}` — **not the default.**
       Without it the drop gap opens in a stale position after the first reorder
-- [ ] `collisionDetection={closestCorners}` — centre-distance detection misbehaves with variable
+- [x] `collisionDetection={closestCorners}` — centre-distance detection misbehaves with variable
       card heights and cannot reach empty columns
-- [ ] **Register each tray as a `useDroppable` container in its own right** — without this, dropping into an *empty* column silently fails. This is the single most common dnd-kit Kanban bug (PLAN §6)
-- [ ] `DragOverlay` for the lifted card: `scale(1.05)` + velocity tilt to ±6° via a `--tilt` custom
+- [x] **Register each tray as a `useDroppable` container in its own right** — without this, dropping into an *empty* column silently fails. This is the single most common dnd-kit Kanban bug (PLAN §6)
+- [x] `DragOverlay` for the lifted card: `scale(1.05)` + velocity tilt to ±6° via a `--tilt` custom
       property written from a `rAF` loop — never via a rotating modifier, which drifts the card off
       the cursor (`DESIGN §5`, `§6`)
-- [ ] `dropAnimation` at **340ms** on `cubic-bezier(.16,1.24,.4,1)` — the settle is the direction's
+- [x] `dropAnimation` at **340ms** on `cubic-bezier(.16,1.24,.4,1)` — the settle is the direction's
       signature; the default 250ms linear-ish drop is not it
-- [ ] Drop placeholder: the source card stays in flow at `opacity:.4` (`defaultDropAnimationSideEffects`)
-- [ ] `autoScroll` enabled so dragging toward an edge scrolls the board/column
-- [ ] `onDragEnd` computes the **neighbour ids** (`beforeTaskId` / `afterTaskId`), not an index
-- [ ] Only `transform`/`opacity` animate anywhere in the drag path; the lift shadow is an
+- [x] Drop placeholder: the source card stays in flow at `opacity:.4` (`defaultDropAnimationSideEffects`)
+- [x] `autoScroll` enabled so dragging toward an edge scrolls the board/column
+- [x] `onDragEnd` computes the **neighbour ids** (`beforeTaskId` / `afterTaskId`), not an index
+- [x] Only `transform`/`opacity` animate anywhere in the drag path; the lift shadow is an
       `::after` layer whose opacity changes (`DESIGN §5`). `will-change:transform` is set on drag
       start and removed on drop — never left on every card
+
+**Verified in a real browser** (Playwright + Chromium, against the live backend, seeding a
+board/columns/tasks directly via the API): a same-column drag (`Task 1` → after `Task 3`) resolves
+to a `200` with the correct rank, and the resulting card order matches exactly, with **no card
+title going blank** — this caught a real bug (below). A cross-column drag onto the **empty**
+Blocked tray's droppable lands a `200` with the right `targetColumnId`, the card renders exactly
+once with its title and description intact. Keyboard (Tab → Space → Arrow → Space) drives a drag
+without throwing. Lifting a card and setting it back exactly where it started fires **no** move
+request (the unchanged-neighbours short circuit in `useBoardDnd`). Zero browser console errors
+across all of the above. `npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean.
+
+**One real bug found and fixed along the way:** the move endpoint's `200` response — and a `409`'s
+`currentTask` — carry PLAN §3's fixed minimal shape (`id`/`columnId`/`rank`/`version`/`updatedAt`
+only, per the backend's `MOVE_RESULT_SELECT`), never a full `Task`. The first cut of
+`upsertTaskInBoard` (`src/lib/tasks.ts`) replaced the cached task wholesale with that response,
+which wiped `title`/`description`/`createdAt` on every single move — caught by the browser test
+above showing a blank card title after a drop. Fixed to merge the response's fields onto the
+existing cached task instead.
+
+**Scope note, deliberate:** `onDragEnd` calls a real, working `useMoveTask` mutation (`src/lib/
+tasks.ts`) — not a no-op — because the drag preview itself already needs a live cross-column
+reorder state (`useBoardDnd`'s `dragOrder`), and persisting that preview against a genuinely broken
+or absent endpoint isn't verifiable. That hook is deliberately the **plain** form of the mutation,
+though: no `onMutate` snapshot/rollback, no per-task sequence numbers, no Undo toast. Those are
+frontend ROADMAP Phase 8's job (`useMoveTask`'s own docblock says so); `onError` here falls back to
+a full board refetch rather than a surgical rollback, which is correct but not the premium
+experience DESIGN §9 describes for a conflict.
 
 ---
 
