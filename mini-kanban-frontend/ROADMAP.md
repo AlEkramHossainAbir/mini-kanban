@@ -6,6 +6,17 @@ Design decisions live in [`PLAN_EN.md`](../PLAN_EN.md) (`§` references point th
 **Target:** Node 20 LTS · Next 14 (App Router) · React 18 · TypeScript · Tailwind
 **Serves:** `http://localhost:3000`, talking to the API at the **same origin** via `/api/v1/*`
 
+> ### Design direction: **Filing Room** (approved 2026-09-04)
+>
+> Every visual, motion and drag-feel decision lives in [`DESIGN.md`](DESIGN.md), with a working
+> look-and-feel mockup at [`design/filing-room.reference.html`](design/filing-room.reference.html).
+> **Open the mockup and read `DESIGN.md` §5–§6 before starting Phase 6.** Phases below reference
+> its sections by `DESIGN §n`; those references are requirements, not suggestions.
+>
+> Two things that doc corrects in this roadmap, both with reasons written out in `DESIGN.md` §6 —
+> apply the corrected version: the **sensor split** (Phase 7) and **no Framer Motion `layout` prop
+> on sortable cards** (Phase 11).
+
 ---
 
 ## Phase 0 — Scaffold (~15 min)
@@ -43,6 +54,11 @@ npm i @tanstack/react-query @tanstack/react-query-devtools \
 | `react-hook-form` + `zod` | auth form validation, mirroring the server DTOs |
 | `sonner` | toasts — used for move-conflict and undo |
 
+- [ ] Fonts are **Archivo + Courier Prime via `next/font/google`** (`DESIGN §3`) — not a `<link>`
+      tag, not a third family
+- [ ] **No further dependency** may be added for styling, icons or animation. The Filing Room look
+      is CSS gradients and these packages only (`DESIGN §8`)
+
 ---
 
 ## Phase 2 — Config: the same-origin proxy (~30 min) · **do this before writing any fetch code**
@@ -74,13 +90,24 @@ module.exports = {
 
 ---
 
-## Phase 3 — Providers & primitives (~1 h) · *Day 3*
+## Phase 3 — Providers, tokens & primitives (~1.5 h) · *Day 3*
 
+**Do the tokens first** — every later phase styles against them, and retro-fitting a palette across
+a built board is how a design direction quietly turns into "close enough".
+
+- [ ] `src/app/globals.css` — replace the scaffold `:root` with the Filing Room tokens verbatim
+      (`DESIGN §2`), including the walnut `body` background. **Delete the scaffold's
+      `prefers-color-scheme` block** — this design is single-theme by decision, not by omission
+- [ ] `tailwind.config.ts` — the colour / radius / shadow / easing extensions from `DESIGN §2`
+- [ ] `src/app/layout.tsx` — `next/font/google` for Archivo + Courier Prime, exposed as CSS
+      variables (`DESIGN §3`)
 - [ ] `src/app/providers.tsx` — `QueryClientProvider` (`staleTime: 30_000`, `retry: 1`), Devtools in dev, `<Toaster />` from sonner
 - [ ] `src/lib/api.ts` — thin `fetch` wrapper: always `credentials: 'include'`, always sends the CSRF header `X-Requested-With: mini-kanban` on mutations (PLAN §5), throws a typed `ApiError` carrying `status` + body
 - [ ] **401 interceptor**: on `401`, call `/api/v1/auth/refresh` **once**, retry the original request, else redirect to `/login` (PLAN §1) — guard against refresh stampedes with a single shared in-flight promise
 - [ ] `src/lib/types.ts` — `Board`, `Column`, `Task` (with `version`), `BoardRole`
-- [ ] `src/components/ui/` — `Button`, `Input`, `Modal`, `Skeleton`, `Avatar` (hand-rolled + Tailwind is fine; a component library is not required)
+- [ ] `src/components/ui/` — `Button`, `Input`, `Modal`, `Skeleton`, `Avatar`, styled per
+      `DESIGN §4.6`/`§4.7` (hand-rolled + Tailwind; a component library is not required)
+- [ ] Sonner `<Toaster />` themed as a manila slip (`DESIGN §4.5`) — position bottom-right
 
 ---
 
@@ -117,17 +144,50 @@ Build the board **without** drag-and-drop first. It's much easier to debug DnD o
 - [ ] Column header count derived from `tasks.length` — no separate counter (PLAN §2)
 - [ ] Skeleton board while loading; error state with a retry button
 
+**The Filing Room shell** (`DESIGN §4`) — build it here, before drag exists, so DnD is debugged on
+a board that already looks right:
+
+- [ ] Angle-cut manila **column tab** with the `clip-path` from `DESIGN §4.2`; status colour lives
+      in the tab gradient and nowhere else
+- [ ] **Tray** = the folder body, `position:relative`, square top-left tucked under the tab
+      (`DESIGN §4.3`)
+- [ ] **Index card**: 29px top padding, red header rule + 21px ruled lines as CSS gradients, the
+      `filed` label, hairline, meta row (`DESIGN §4.4`). Card title line-height **must** be 21px —
+      it is what the ruling lines up with
+- [ ] Empty tray reads `no cards filed`; done cards use the struck-through treatment
+- [ ] Card skeletons carry the ruled background too (`DESIGN §4.7`)
+
 ---
 
 ## Phase 7 — Drag and drop (~2.5 h) · *Day 3 — the graded core*
 
-- [ ] `DndContext` + `SortableContext` per column, `useSortable` on each card
-- [ ] Sensors: `PointerSensor` with `activationConstraint: { delay: 200, tolerance: 5 }` and `KeyboardSensor` with `sortableKeyboardCoordinates`
-- [ ] **Register each column as a `useDroppable` container in its own right** — without this, dropping into an *empty* column silently fails. This is the single most common dnd-kit Kanban bug (PLAN §6)
-- [ ] `DragOverlay` for the lifted card (elevation + slight scale)
-- [ ] Drop placeholder: a dashed gap the exact height of the dragged card
+Read [`DESIGN.md` §6](DESIGN.md#6-drag-and-drop--the-contract) in full first — it is the contract
+for this phase. **Build on `dnd-kit`; do not hand-roll a drag engine.** The reference mockup ships
+one only because an artifact cannot install packages; copying it would forfeit the keyboard sensor
+and the announcements, both of which are graded.
+
+- [ ] `DndContext` + `SortableContext` per column (`verticalListSortingStrategy`), `useSortable` on each card
+- [ ] Sensors — **split mouse from touch** (`DESIGN §6`, refines the single `PointerSensor` this
+      roadmap originally specified): `MouseSensor` `{ distance: 4 }`, `TouchSensor`
+      `{ delay: 200, tolerance: 5 }`, `KeyboardSensor` with `sortableKeyboardCoordinates`.
+      A 200ms delay is needed on touch so scrolling isn't read as a drag; the same delay on a mouse
+      just reads as lag
+- [ ] `measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}` — **not the default.**
+      Without it the drop gap opens in a stale position after the first reorder
+- [ ] `collisionDetection={closestCorners}` — centre-distance detection misbehaves with variable
+      card heights and cannot reach empty columns
+- [ ] **Register each tray as a `useDroppable` container in its own right** — without this, dropping into an *empty* column silently fails. This is the single most common dnd-kit Kanban bug (PLAN §6)
+- [ ] `DragOverlay` for the lifted card: `scale(1.05)` + velocity tilt to ±6° via a `--tilt` custom
+      property written from a `rAF` loop — never via a rotating modifier, which drifts the card off
+      the cursor (`DESIGN §5`, `§6`)
+- [ ] `dropAnimation` at **340ms** on `cubic-bezier(.16,1.24,.4,1)` — the settle is the direction's
+      signature; the default 250ms linear-ish drop is not it
+- [ ] Drop placeholder: the source card stays in flow at `opacity:.4` (`defaultDropAnimationSideEffects`)
 - [ ] `autoScroll` enabled so dragging toward an edge scrolls the board/column
 - [ ] `onDragEnd` computes the **neighbour ids** (`beforeTaskId` / `afterTaskId`), not an index
+- [ ] Only `transform`/`opacity` animate anywhere in the drag path; the lift shadow is an
+      `::after` layer whose opacity changes (`DESIGN §5`). `will-change:transform` is set on drag
+      start and removed on drop — never left on every card
 
 ---
 
@@ -166,13 +226,23 @@ The whole of PLAN §6, in `useMoveTask`:
 
 ## Phase 11 — Polish & accessibility (~2 h) · *Day 4*
 
-- [ ] Framer Motion `layout` on task cards; Tailwind transitions for hover/lift shadow
-- [ ] `prefers-reduced-motion` respected
+- [ ] **Framer Motion is for card enter/exit, modals and toasts only.** Do *not* put the `layout`
+      prop on a sortable card — it fights `useSortable`'s own transform, which is what makes cards
+      judder and land a few pixels off (`DESIGN §6`). The reflow is dnd-kit's transition at 280ms
+      on `cubic-bezier(.22,.85,.28,1)`
+- [ ] Hover/lift shadow via the `::after` opacity layer, not a `box-shadow` transition (`DESIGN §5`)
+- [ ] `prefers-reduced-motion` kills tilt, scale and overshoot and collapses reflow/drop to ≤1ms
 - [ ] Empty states for: no boards, no columns, empty column
 - [ ] Keyboard DnD pass — Tab, Space to lift, arrows to move, Space to drop, Esc to cancel
 - [ ] Custom `dnd-kit` `announcements` naming the task, column and position (PLAN §6)
 - [ ] Focus rings visible; modals trap focus and close on Esc
 - [ ] Mobile pass on a real phone viewport: drag vs. scroll, horizontal column swipe, tap targets ≥ 44px
+- [ ] Contrast pass — `--faint` is `#7C7365`, **not** the mockup's lighter grey, which fails AA on
+      11px meta text (`DESIGN §2`, `§7`)
+- [ ] Perf pass — 60 cards in one column, record a drag in DevTools Performance: 60fps, no layout
+      thrash, no style recalc on non-dragged cards (`DESIGN §6`)
+- [ ] `npm run build` — the `/boards/[id]` route ships under **200KB gzipped JS** (`DESIGN §8`)
+- [ ] Walk `DESIGN §9` "Done when" end to end; every box there must pass before the UI is called done
 
 ---
 

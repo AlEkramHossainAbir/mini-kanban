@@ -1,0 +1,484 @@
+<title>Filing Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap">
+<style>
+:root{
+  --wood:#5E4736; --wood-hi:#6E5541; --wood-lo:#4A382B;
+  --manila:#D7C097; --manila-2:#C7AE83; --manila-ink:#4A3A22;
+  --card:#FDFBF4; --card-2:#F6F1E4; --edge:#E0D6BE;
+  --ink:#231F1A; --pencil:#5D5449; --faint:#8E8578;
+  --rule:#B24234; --blue:#2F5C86; --moss:#4A6B3C; --amber:#8A6414;
+  --ease:cubic-bezier(.22,.85,.28,1);
+  --col-w:280px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;color:var(--ink);min-height:100vh;
+  font-family:Archivo,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1100px 640px at 16% -12%, var(--wood-hi), transparent 58%),
+    radial-gradient(900px 620px at 92% 112%, var(--wood-lo), transparent 60%),
+    repeating-linear-gradient(88deg, rgba(255,255,255,.018) 0 3px, rgba(0,0,0,.014) 3px 7px),
+    var(--wood);
+}
+body.dragging-on{cursor:grabbing;user-select:none}
+.type{font-family:"Courier Prime",ui-monospace,Menlo,monospace}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--manila);outline-offset:3px}
+
+.wrap{max-width:1420px;margin:0 auto;padding:0 30px}
+.top{display:flex;align-items:center;gap:13px;padding:22px 0 0;color:#F0E6D6}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;letter-spacing:-.01em}
+.logo i{width:22px;height:17px;border-radius:2px 5px 2px 2px;background:var(--manila);display:block;box-shadow:2px 2px 0 rgba(0,0,0,.24);transform:rotate(-4deg)}
+.top .sp{flex:1}
+.crew{display:flex}
+.crew i{
+  width:27px;height:27px;border-radius:50%;display:grid;place-items:center;margin-left:-7px;
+  font-size:10px;font-weight:700;font-style:normal;color:var(--card);border:2px solid #5E4736;
+  transition:transform 220ms var(--ease);
+}
+.crew i:first-child{margin-left:0}
+.crew:hover i{transform:translateY(-2px)}
+.c1{background:#2F5C86}.c2{background:#7A5A18}.c3{background:#4A6B3C}.c4{background:#8B3F33}
+.tbtn{
+  height:31px;padding:0 13px;border-radius:3px;font-size:12.5px;font-weight:600;
+  background:rgba(255,255,255,.11);color:#F3EADB;border:1px solid rgba(255,255,255,.2);
+  transition:background 180ms var(--ease),transform 180ms var(--ease);
+}
+.tbtn:hover{background:rgba(255,255,255,.2);transform:translateY(-1px)}
+.tbtn.paper{background:var(--manila);color:var(--manila-ink);border-color:var(--manila-2);box-shadow:0 2px 0 rgba(0,0,0,.22)}
+.tbtn.paper:hover{background:#E3CEA8}
+
+.title{padding:26px 0 20px;display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;color:#F6EFE3}
+.title h1{margin:0;font-size:32px;font-weight:700;letter-spacing:-.022em}
+.title .sub{font-size:12.5px;color:rgba(255,240,220,.6);margin-top:4px}
+.slip{
+  margin-left:auto;background:var(--manila);border-radius:2px;padding:10px 15px;color:var(--manila-ink);
+  box-shadow:0 9px 18px -9px rgba(0,0,0,.65);transform:rotate(-.8deg);
+  display:flex;gap:20px;align-items:center;border-left:3px solid var(--rule);
+}
+.slip div{display:flex;flex-direction:column;line-height:1.15}
+.slip b{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.slip span{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(74,58,34,.66);font-weight:700}
+
+.board{display:flex;gap:14px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:thin}
+.board::-webkit-scrollbar{height:9px}
+.board::-webkit-scrollbar-thumb{background:rgba(0,0,0,.28);border-radius:9px}
+.col{width:var(--col-w);flex:0 0 var(--col-w);display:flex;flex-direction:column}
+.tab{
+  align-self:flex-start;background:linear-gradient(var(--manila),var(--manila-2));
+  border-radius:7px 12px 0 0;padding:7px 20px 6px 14px;display:flex;align-items:center;gap:9px;
+  color:var(--manila-ink);box-shadow:0 -1px 0 rgba(255,255,255,.4) inset;
+  clip-path:polygon(0 0,calc(100% - 11px) 0,100% 100%,0 100%);
+}
+.tab b{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.tab .n{font-size:11px;font-variant-numeric:tabular-nums;color:rgba(74,58,34,.6)}
+.col[data-key="doing"] .tab{background:linear-gradient(#E0C793,#CFB37C)}
+.col[data-key="blocked"] .tab{background:linear-gradient(#DBB6A4,#C99C87)}
+.col[data-key="done"] .tab{background:linear-gradient(#C4CDA8,#AEB98E)}
+.tray{
+  position:relative;background:linear-gradient(rgba(215,192,151,.26),rgba(215,192,151,.16));
+  border:1px solid rgba(255,255,255,.22);border-top-left-radius:0;border-radius:0 8px 6px 6px;
+  padding:12px;display:flex;flex-direction:column;gap:11px;min-height:218px;flex:1;
+  box-shadow:0 12px 26px -18px rgba(0,0,0,.7);
+  transition:background 200ms var(--ease),border-color 200ms var(--ease);
+}
+.col.over .tray{background:linear-gradient(rgba(240,222,186,.4),rgba(240,222,186,.26));border-color:rgba(255,255,255,.42)}
+.tray:empty::after{
+  content:"no cards filed";display:grid;place-items:center;height:78px;
+  border:1.5px dashed rgba(255,247,230,.34);border-radius:3px;
+  color:rgba(255,247,230,.6);font-size:12px;font-family:"Courier Prime",monospace;
+}
+
+.card{
+  position:relative;border:1px solid var(--edge);border-radius:3px;cursor:grab;touch-action:none;
+  padding:29px 13px 11px;
+  background-color:var(--card);
+  background-image:
+    linear-gradient(rgba(178,66,52,.5) 0 1px, transparent 1px),
+    repeating-linear-gradient(rgba(47,92,134,.08) 0 1px, transparent 1px 21px);
+  background-position:0 22px, 0 24px;
+  background-repeat:no-repeat, repeat;
+  box-shadow:0 1px 0 rgba(255,255,255,.8) inset, 0 3px 6px -3px rgba(20,14,8,.5);
+  transition:transform 200ms var(--ease);
+}
+.card::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;
+  box-shadow:0 28px 46px -18px rgba(18,12,6,.66), 0 7px 15px -6px rgba(18,12,6,.45);
+  transition:opacity 200ms var(--ease);
+}
+.filed{
+  position:absolute;left:13px;top:5px;font-family:"Courier Prime",monospace;
+  font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--faint);
+}
+.card[data-kind="dnd"] .filed{color:var(--amber)}
+.card[data-kind="risk"] .filed{color:var(--rule)}
+.card[data-kind="api"] .filed{color:var(--blue)}
+.card[data-kind="ship"] .filed{color:var(--moss)}
+.card:hover{transform:translateY(-2px)}
+.card:hover::after{opacity:.45}
+.card:active{cursor:grabbing}
+.card .t{font-family:"Courier Prime",monospace;font-size:13px;font-weight:700;line-height:21px}
+.card .m{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(35,31,26,.09)}
+.card .m .ref{font-family:"Courier Prime",monospace;font-size:11px;color:var(--faint)}
+.card .m .who{margin-left:auto;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;color:var(--card)}
+.stamp{
+  position:absolute;right:8px;top:-8px;transform:rotate(-4deg);
+  font-family:"Courier Prime",monospace;font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--rule);border:1.5px solid var(--rule);border-radius:2px;padding:1px 5px;background:var(--card);opacity:.9;
+}
+.card.done{opacity:.7}
+.card.done .t{text-decoration:line-through;text-decoration-color:rgba(35,31,26,.32);font-weight:400}
+.card.dragging{transition:none}
+.card.dragging::after{opacity:1}
+.ph{border-radius:3px;background:rgba(60,44,26,.2);box-shadow:inset 0 1px 4px rgba(0,0,0,.32)}
+.card.flash{animation:flash 760ms var(--ease)}
+@keyframes flash{0%{box-shadow:0 0 0 3px rgba(178,66,52,.55), 0 12px 22px -8px rgba(0,0,0,.5)}100%{box-shadow:0 1px 0 rgba(255,255,255,.8) inset, 0 3px 6px -3px rgba(20,14,8,.5)}}
+.card.pending{opacity:.5}
+
+.toasts{position:fixed;right:26px;bottom:26px;display:flex;flex-direction:column;gap:9px;z-index:90;align-items:flex-end}
+.toast{
+  display:flex;align-items:center;gap:14px;padding:11px 14px;border-radius:2px;
+  background:var(--manila);color:var(--manila-ink);font-size:13px;font-weight:600;
+  border-left:3px solid var(--blue);box-shadow:0 18px 34px -14px rgba(8,5,3,.7);
+  animation:slip 300ms var(--ease);
+}
+.toast.err{background:#E7C6B8;border-left-color:var(--rule)}
+.toast b{font-weight:700}
+.toast button{color:var(--blue);font-weight:700;font-size:12.5px}
+.toast.err button{color:#8A2E22}
+.toast button:hover{text-decoration:underline}
+@keyframes slip{from{opacity:0;transform:translate3d(20px,0,0) rotate(1.4deg)}to{opacity:1;transform:none}}
+
+.spec{
+  margin:22px 0 34px;background:var(--card);border-radius:3px;padding:18px 20px;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:22px;
+  box-shadow:0 14px 28px -18px rgba(0,0,0,.6);border-left:3px solid var(--manila-2);
+}
+.spec h3{margin:0 0 8px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.sw{display:flex;gap:6px}
+.sw i{width:28px;height:28px;border-radius:2px;display:block;border:1px solid rgba(0,0,0,.1)}
+.spec p{margin:0;font-size:12.5px;color:var(--pencil);max-width:36ch}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <span class="logo"><i></i>Webbriks · Mini Kanban</span>
+    <div class="sp"></div>
+    <div class="crew" title="On this board"><i class="c1">EA</i><i class="c2">RH</i><i class="c3">SN</i><i class="c4">MK</i></div>
+    <button class="tbtn" id="conflict">Simulate conflict</button>
+    <button class="tbtn paper">Share board</button>
+  </div>
+
+  <div class="title">
+    <div>
+      <h1>Delivery board</h1>
+      <div class="sub type">sprint 4 · filed by rank string · every move stamped with a version</div>
+    </div>
+    <div class="slip">
+      <div><b>14</b><span>Filed</span></div>
+      <div><b>4</b><span>Clerks</span></div>
+      <div><b>2m</b><span>Last entry</span></div>
+    </div>
+  </div>
+
+  <div class="board" id="board">
+    <section class="col" data-key="backlog">
+      <div class="tab"><b>Backlog</b><span class="n"></span></div>
+      <div class="tray" data-col="Backlog">
+        <article class="card" data-kind="api" tabindex="0"><span class="filed">api · mk-118</span><div class="t">Audit log: write on every move and membership change</div><div class="m"><span class="ref">due Sep 6</span><span class="who c2">RH</span></div></article>
+        <article class="card" tabindex="0"><span class="filed">ui · mk-121</span><div class="t">Virtualize columns past 200 cards</div><div class="m"><span class="ref">due Sep 9</span><span class="who c1">EA</span></div></article>
+        <article class="card" data-kind="dnd" tabindex="0"><span class="filed">ranking · mk-109</span><div class="t">Rebalance ranks when two keys collide</div><div class="m"><span class="ref">due Sep 7</span><span class="who c3">SN</span></div></article>
+        <article class="card" data-kind="risk" tabindex="0"><span class="stamp">overdue</span><span class="filed">security · mk-131</span><div class="t">Rate-limit auth routes per IP</div><div class="m"><span class="ref">due Sep 2</span><span class="who c4">MK</span></div></article>
+      </div>
+    </section>
+
+    <section class="col" data-key="doing">
+      <div class="tab"><b>In progress</b><span class="n"></span></div>
+      <div class="tray" data-col="In progress">
+        <article class="card" data-kind="dnd" tabindex="0"><span class="filed">dnd · mk-104</span><div class="t">Register empty columns as their own droppable</div><div class="m"><span class="ref">today</span><span class="who c1">EA</span></div></article>
+        <article class="card" data-kind="dnd" tabindex="0"><span class="filed">dnd · mk-105</span><div class="t">Optimistic move + 409 rollback with undo toast</div><div class="m"><span class="ref">today</span><span class="who c1">EA</span></div></article>
+        <article class="card" data-kind="api" tabindex="0"><span class="filed">realtime · mk-112</span><div class="t">Board gateway: ws-ticket handshake</div><div class="m"><span class="ref">due Sep 5</span><span class="who c3">SN</span></div></article>
+      </div>
+    </section>
+
+    <section class="col" data-key="review">
+      <div class="tab"><b>In review</b><span class="n"></span></div>
+      <div class="tray" data-col="In review">
+        <article class="card" data-kind="risk" tabindex="0"><span class="filed">authz · mk-097</span><div class="t">RolesGuard on every board-scoped route</div><div class="m"><span class="ref">due Sep 5</span><span class="who c4">MK</span></div></article>
+        <article class="card" tabindex="0"><span class="filed">a11y · mk-116</span><div class="t">Keyboard drag: pick up, move, drop, cancel</div><div class="m"><span class="ref">due Sep 5</span><span class="who c2">RH</span></div></article>
+      </div>
+    </section>
+
+    <section class="col" data-key="blocked">
+      <div class="tab"><b>Blocked</b><span class="n"></span></div>
+      <div class="tray" data-col="Blocked"></div>
+    </section>
+
+    <section class="col" data-key="done">
+      <div class="tab"><b>Done</b><span class="n"></span></div>
+      <div class="tray" data-col="Done">
+        <article class="card done" data-kind="ship" tabindex="0"><span class="filed">auth · mk-081</span><div class="t">Rotating refresh tokens in httpOnly cookies</div><div class="m"><span class="ref">closed Sep 2</span><span class="who c3">SN</span></div></article>
+        <article class="card done" data-kind="ship" tabindex="0"><span class="filed">ranking · mk-088</span><div class="t">Fractional rank utility + unit tests</div><div class="m"><span class="ref">closed Sep 3</span><span class="who c1">EA</span></div></article>
+        <article class="card done" data-kind="ship" tabindex="0"><span class="filed">infra · mk-072</span><div class="t">Prisma migration committed, replayed on deploy</div><div class="m"><span class="ref">closed Sep 1</span><span class="who c2">RH</span></div></article>
+      </div>
+    </section>
+  </div>
+
+  <section class="spec">
+    <div><h3>Palette</h3><div class="sw">
+      <i style="background:#5E4736"></i><i style="background:#D7C097"></i><i style="background:#FDFBF4"></i>
+      <i style="background:#B24234"></i><i style="background:#2F5C86"></i><i style="background:#4A6B3C"></i></div></div>
+    <div><h3>Type</h3><p>Courier Prime sets the card copy itself, on a 21px ruled baseline. Archivo handles the chrome — tabs, buttons, figures.</p></div>
+    <div><h3>Motion</h3><p>Damped follow at 0.34 · tilt to 6° · reflow 280ms · drop lands on (.16,1.24,.4,1), a visible settle. The heaviest of the three, closest to real paper.</p></div>
+    <div><h3>Idea</h3><p>A filing cabinet: manila tabs cut at an angle, ruled index cards, a red header rule. Status lives in the tab colour, not in the card.</p></div>
+  </section>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="sr" role="status" aria-live="polite" id="live"></div>
+
+<script>
+const CFG = {
+  tray:'.tray', follow:.34, tilt:6, tiltK:.14, scale:1.05,
+  flip:280, flipEase:'cubic-bezier(.22,.85,.28,1)',
+  drop:340, dropEase:'cubic-bezier(.16,1.24,.4,1)',
+  toastOut:'translate3d(14px,0,0)',
+  moved: to => `Filed under <b>${to}</b>`,
+  conflict:'<b>409 conflict.</b> Another clerk moved this card — board resynced.'
+};
+/* ---------- shared drag engine ---------- */
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const board = document.getElementById('board');
+const liveRegion = document.getElementById('live');
+const TRAY = CFG.tray;
+
+function counts(){
+  document.querySelectorAll('.col').forEach(col => {
+    col.querySelector('.n').textContent = col.querySelectorAll('.card').length;
+  });
+}
+counts();
+
+/* FLIP with continuity: an element already in flight re-targets instead of snapping */
+const anims = new WeakMap();
+function flip(mutate){
+  const els = [...board.querySelectorAll('.card:not(.dragging), .ph')];
+  const first = els.map(el => [el, el.getBoundingClientRect()]);
+  mutate();
+  if (RM) return;
+  for (const [el, f] of first){
+    const prev = anims.get(el);
+    if (prev) prev.cancel();
+    const l = el.getBoundingClientRect();
+    const dx = f.left - l.left, dy = f.top - l.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+    const a = el.animate(
+      [{transform:`translate3d(${dx}px,${dy}px,0)`},{transform:'translate3d(0,0,0)'}],
+      {duration:CFG.flip, easing:CFG.flipEase}
+    );
+    anims.set(el, a);
+    a.finished.then(() => { if (anims.get(el) === a) anims.delete(el); }, () => {});
+  }
+}
+
+/* pointer state is written by the event, read by the frame loop — never both */
+let drag = null, rafId = 0, px = 0, py = 0;
+
+board.addEventListener('pointerdown', e => {
+  const card = e.target.closest('.card');
+  if (!card || e.button !== 0) return;
+  const sx = e.clientX, sy = e.clientY;
+  const rect = card.getBoundingClientRect();
+  let started = false;
+  px = sx; py = sy;
+  const move = ev => {
+    px = ev.clientX; py = ev.clientY;
+    if (!started && Math.hypot(px - sx, py - sy) >= 5){ started = true; begin(card, rect, sx, sy); }
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    if (started) end();
+  };
+  document.addEventListener('pointermove', move, {passive:true});
+  document.addEventListener('pointerup', up);
+});
+
+function begin(card, rect, sx, sy){
+  const ph = document.createElement('div');
+  ph.className = 'ph';
+  ph.style.height = rect.height + 'px';
+  card.after(ph);
+  card.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;margin:0;pointer-events:none;will-change:transform;z-index:80`;
+  card.classList.add('dragging');
+  document.body.classList.add('dragging-on');
+  drag = {card, ph, sx, sy, bx:rect.left, by:rect.top, x:0, y:0, tilt:0, scale:1,
+          from:card.closest(TRAY).dataset.col, cols:[]};
+  measure();
+  rafId = requestAnimationFrame(tick);
+}
+
+/* layout-space measurements: offsetTop is immune to the transforms in flight,
+   which is what stops the insertion point from oscillating mid-animation */
+function measure(){
+  drag.cols = [...board.querySelectorAll(TRAY)].map(tray => {
+    const cr = tray.closest('.col').getBoundingClientRect();
+    const tr = tray.getBoundingClientRect();
+    return {
+      tray, left:cr.left, right:cr.right, top:tr.top,
+      items:[...tray.children]
+        .filter(el => el !== drag.card && el !== drag.ph)
+        .map(el => ({el, mid: el.offsetTop + el.offsetHeight / 2}))
+    };
+  });
+}
+
+window.addEventListener('scroll', () => { if (drag) measure(); }, {passive:true});
+window.addEventListener('resize', () => { if (drag) measure(); });
+
+function tick(){
+  const d = drag;
+  if (!d) return;
+  const tx = px - d.sx, ty = py - d.sy;
+  const k = RM ? 1 : CFG.follow;
+  const nx = d.x + (tx - d.x) * k, ny = d.y + (ty - d.y) * k;
+  const vx = nx - d.x;
+  d.x = nx; d.y = ny;
+  d.scale += (CFG.scale - d.scale) * 0.18;
+  const want = Math.max(-CFG.tilt, Math.min(CFG.tilt, vx * CFG.tiltK));
+  d.tilt += (want - d.tilt) * 0.16;
+  d.card.style.transform =
+    `translate3d(${d.x.toFixed(2)}px,${d.y.toFixed(2)}px,0) rotate(${d.tilt.toFixed(2)}deg) scale(${d.scale.toFixed(3)})`;
+  autoscroll();
+  place();
+  rafId = requestAnimationFrame(tick);
+}
+
+function autoscroll(){
+  const r = board.getBoundingClientRect(), edge = 90;
+  let dx = 0;
+  if (px < r.left + edge) dx = -(1 - Math.max(0, px - r.left) / edge) * 15;
+  else if (px > r.right - edge) dx = (1 - Math.max(0, r.right - px) / edge) * 15;
+  if (!dx) return;
+  const before = board.scrollLeft;
+  board.scrollLeft += dx;
+  if (board.scrollLeft !== before) measure();
+}
+
+function place(){
+  const d = drag;
+  const col = d.cols.find(c => px >= c.left && px <= c.right);
+  document.querySelectorAll('.col.over').forEach(c => c.classList.remove('over'));
+  if (!col) return;
+  col.tray.closest('.col').classList.add('over');
+  const y = py - col.top;
+  const hit = col.items.find(i => y < i.mid);
+  const target = hit ? hit.el : null;
+  if (d.ph.parentElement === col.tray){
+    if (target && target === d.ph.nextElementSibling) return;
+    if (!target && !d.ph.nextElementSibling) return;
+  }
+  flip(() => target ? col.tray.insertBefore(d.ph, target) : col.tray.appendChild(d.ph));
+  measure();
+}
+
+function end(){
+  cancelAnimationFrame(rafId);
+  const d = drag;
+  drag = null;
+  document.body.classList.remove('dragging-on');
+  document.querySelectorAll('.col.over').forEach(c => c.classList.remove('over'));
+  const to = d.ph.parentElement.dataset.col, from = d.from;
+  const held = anims.get(d.ph);
+  if (held) held.cancel();
+  const t = d.ph.getBoundingClientRect();
+  const endT = `translate3d(${(t.left - d.bx).toFixed(2)}px,${(t.top - d.by).toFixed(2)}px,0) rotate(0deg) scale(1)`;
+  const settle = () => {
+    d.ph.replaceWith(d.card);
+    d.card.removeAttribute('style');
+    d.card.classList.remove('dragging');
+    counts();
+    if (to !== from){
+      toast(CFG.moved(to), {action:'Undo', onAction:() => undo(d.card, from)});
+      say(`${d.card.querySelector('.t').textContent} moved to ${to}`);
+    }
+  };
+  if (RM) return settle();
+  const a = d.card.animate([{transform:d.card.style.transform},{transform:endT}],
+    {duration:CFG.drop, easing:CFG.dropEase, fill:'forwards'});
+  a.onfinish = settle;
+}
+
+function undo(card, col){
+  const tray = [...document.querySelectorAll(TRAY)].find(t => t.dataset.col === col);
+  flip(() => tray.prepend(card));
+  counts();
+  say(`Move undone, back in ${col}`);
+}
+
+/* keyboard drag */
+board.addEventListener('keydown', e => {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  const trays = [...document.querySelectorAll(TRAY)];
+  const i = trays.indexOf(card.closest(TRAY));
+  let handled = true;
+  if (e.key === 'ArrowLeft' && i > 0) flip(() => trays[i-1].appendChild(card));
+  else if (e.key === 'ArrowRight' && i < trays.length - 1) flip(() => trays[i+1].appendChild(card));
+  else if (e.key === 'ArrowUp' && card.previousElementSibling) flip(() => card.previousElementSibling.before(card));
+  else if (e.key === 'ArrowDown' && card.nextElementSibling) flip(() => card.nextElementSibling.after(card));
+  else handled = false;
+  if (!handled) return;
+  e.preventDefault();
+  card.focus();
+  counts();
+  say(`${card.querySelector('.t').textContent} — ${card.closest(TRAY).dataset.col}, position ${[...card.parentElement.children].indexOf(card)+1} of ${card.parentElement.children.length}`);
+});
+
+/* toasts */
+function toast(html, opts = {}){
+  const el = document.createElement('div');
+  el.className = 'toast' + (opts.err ? ' err' : '');
+  el.innerHTML = `<span>${html}</span>`;
+  if (opts.action){
+    const b = document.createElement('button');
+    b.textContent = opts.action;
+    b.onclick = () => { opts.onAction(); dismiss(el); };
+    el.appendChild(b);
+  }
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => dismiss(el), opts.err ? 5200 : 4600);
+}
+function dismiss(el){
+  if (!el.isConnected) return;
+  el.animate([{opacity:1},{opacity:0, transform:CFG.toastOut}], {duration:200, easing:'ease-in', fill:'forwards'})
+    .onfinish = () => el.remove();
+}
+function say(t){ liveRegion.textContent = t; }
+
+/* 409 conflict: optimistic move, server rejects, board rolls back */
+document.getElementById('conflict').onclick = () => {
+  const card = document.querySelector('.col[data-key="doing"] .card');
+  if (!card) return;
+  const home = card.closest(TRAY), next = card.nextElementSibling;
+  const target = document.querySelector('.col[data-key="review"] ' + TRAY);
+  card.classList.add('pending');
+  flip(() => target.prepend(card));
+  counts();
+  setTimeout(() => {
+    card.classList.remove('pending');
+    flip(() => next ? next.before(card) : home.appendChild(card));
+    counts();
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 760);
+    toast(CFG.conflict, {err:true});
+    say('Move rejected, board updated');
+  }, 900);
+};
+
+</script>

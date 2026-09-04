@@ -12,6 +12,12 @@ with auth, board sharing/permissions, and drag-and-drop task movement as the gra
 - [`ROADMAP.md`](ROADMAP.md) — root build order across both apps, docker-compose, deployment
 - [`mini-kanban-backend/ROADMAP.md`](mini-kanban-backend/ROADMAP.md) — backend phase-by-phase plan
 - [`mini-kanban-frontend/ROADMAP.md`](mini-kanban-frontend/ROADMAP.md) — frontend phase-by-phase plan
+- [`mini-kanban-frontend/DESIGN.md`](mini-kanban-frontend/DESIGN.md) — **the "Filing Room" design
+  system**: tokens (§2), type (§3), component anatomy (§4), motion (§5), the dnd-kit smoothness
+  contract (§6), a11y (§7), the lightweight budget (§8), and the UI "Done when" list (§9). Read it
+  before writing any board UI; `mini-kanban-frontend/design/filing-room.reference.html` is the
+  approved look-and-feel mockup — open it in a browser, but **do not port its hand-rolled drag
+  engine**, which exists only because an artifact cannot install `dnd-kit`
 
 When implementing anything, find the relevant phase in the appropriate ROADMAP.md and the
 matching `§` section in PLAN_EN.md before writing code — the design decisions and their reasons
@@ -30,7 +36,12 @@ are already written down there. Don't relitigate them without a real reason.
   `column.*` events broadcast after commit. **Next up: Phase 10 (audit log).**
 - `mini-kanban-frontend/` — Next 14 / React 18 / TypeScript / Tailwind scaffold only (Phase 0 of
   the frontend roadmap). Boilerplate hero removed. Nothing past scaffold exists yet — this is
-  correct, root ROADMAP Phase 2 gates frontend work behind backend Phases 5–9.
+  correct, root ROADMAP Phase 2 gates frontend work behind backend Phases 5–9. **The visual
+  direction is settled**: "Filing Room" (walnut desk, angle-cut manila tabs, ruled index cards),
+  chosen 2026-09-04 from three prototypes and specified in `mini-kanban-frontend/DESIGN.md`. The
+  scaffold's `globals.css` and `tailwind.config.ts` still hold create-next-app defaults — frontend
+  Phase 3 replaces them with the Filing Room tokens, including deleting the scaffold's
+  `prefers-color-scheme` block, since this design is deliberately single-theme.
 - Root `.gitignore` and root `.env.example` both exist (Phase 1 done). Still missing from root
   ROADMAP.md Phase 3: `docker-compose.yml` — note its own timing said "end of Day 1 for `db` +
   `backend`", so it is the one item running behind its plan.
@@ -66,6 +77,13 @@ These are called out explicitly in ROADMAP.md and PLAN_EN.md — never soften th
 - One-command Docker bring-up: `docker compose up --build` from a fresh clone, zero manual steps.
 - httpOnly cookie auth (never `localStorage` for tokens) and the same-origin Next.js rewrite
   proxy for `/api/v1/*` — required for `SameSite=Lax` cookies to survive a split deployment.
+- `DESIGN.md` is the source of truth for the UI. Its exact hex values, sizes, durations and
+  easings are not to be rounded off or swapped for Tailwind defaults, and **no new styling,
+  icon or animation dependency** gets added beyond frontend ROADMAP Phase 1's list.
+- Drag-and-drop is built on `dnd-kit` with the four explicit settings in `DESIGN.md` §6
+  (`MeasuringStrategy.Always`, `closestCorners`, the mouse/touch sensor split, and no Framer
+  Motion `layout` on sortable cards). None of them is a dnd-kit default; each one prevents a
+  specific, reproducible drag bug.
 
 If time runs out, cut in this order instead (see root ROADMAP.md "If you fall behind"): Framer
 Motion polish → WebSocket live sync → audit logging → keyboard drag-and-drop.
