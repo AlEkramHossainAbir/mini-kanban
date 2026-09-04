@@ -226,14 +226,40 @@ Small on purpose — the four things a reviewer will actually probe:
 - [x] `rank.util.spec.ts` (unit, from Phase 7) — landed early, in Phase 7, along with
       `columns.service.spec.ts`, `tasks.service.spec.ts` and `env.validation.spec.ts`
       (62 unit tests total)
-- [ ] `auth.e2e-spec.ts` — register → login → refresh → logout
-- [ ] `authz.e2e-spec.ts` — IDOR attempt returns `403`
-- [ ] `move.e2e-spec.ts` — stale `expectedVersion` returns `409`; cross-board `targetColumnId` returns `400`
+- [x] `auth.e2e-spec.ts` — register → login → refresh → logout (9 tests). Asserts the cookie
+      contract itself, not just the status codes: `HttpOnly`, `SameSite=Lax`, `mk_rt` scoped to
+      `Path=/api/v1/auth/refresh`, no JWT anywhere in a response body, rotation returning a
+      *different* token, logout revoking server-side rather than only clearing cookies, the
+      identical `401` for a wrong password and an unknown email, refresh-token reuse burning the
+      whole family (and writing the Phase 10 audit row), and the `5/min` login limiter's `429`.
+- [x] `authz.e2e-spec.ts` — IDOR attempt returns `403` (24 tests). Walks **all 14** board-scoped
+      routes with a valid session that has no `BoardMember` row — every one `403`, none `404`,
+      none `200` — then the VIEWER/EDITOR/OWNER role matrix, the last-owner guard's `409`, and
+      that unsharing cuts an existing session off on its very next request.
+- [x] `move.e2e-spec.ts` — stale `expectedVersion` returns `409`; cross-board `targetColumnId`
+      returns `400` (14 tests). Plus the exact `{error, currentTask}` body with no wrapper, a
+      5-way concurrent race resolving to exactly one `200` and four `409`s with `version`
+      incremented once, `position`-based insertion, 12 repeated midpoint splits staying ordered
+      and distinct, neighbour self-healing, and that a title edit does *not* bump `version`.
 
-> All three e2e specs above are currently covered *manually* — a 125-check scripted audit against a
-> live instance (auth, IDOR, roles, boards/members, columns, tasks, move, cascades, security
-> headers) plus an 8-way concurrent move race that produced exactly one `200` and seven `409`s.
-> They still need to be committed as automated Jest e2e specs for this phase to close.
+Three notes on how these run, all deliberate:
+
+- **Nothing is stubbed.** `test/e2e-harness.ts` boots the real `AppModule` through the same
+  `configureApp()` that `main.ts` uses, so helmet, the whitelist `ValidationPipe`, the throttler
+  and the full guard chain are all in the path.
+- **Each agent carries its own `X-Forwarded-For`.** `/auth/login` allows 5 hits/min *per IP* and
+  every request would otherwise arrive from `127.0.0.1`, which would make results depend on how
+  many users a spec happens to create. Overriding the guard away was the alternative; this keeps
+  it live instead, and quietly proves `trust proxy` works — without it the limiter would see the
+  load balancer and throttle every user as one client.
+- **The harness owns cleanup.** Every user it creates is deleted in `afterAll` (boards, columns,
+  tasks, memberships and refresh tokens cascade; `AuditLog` is cleared explicitly, since its
+  `userId` is `onDelete: SetNull` and its rows would otherwise outlive their users). Verified
+  repeatable: two consecutive full runs, `select count(*) from "User" where email like 'e2e-%'`
+  → `0` afterwards.
+
+**Done:** `npm run test` 65 unit tests, `npm run test:e2e` **50** tests across 4 suites, `lint`
+and `build` all clean.
 
 ```bash
 npm run test        # unit
@@ -265,8 +291,33 @@ EXPOSE 4000
 CMD ["sh","-c","npx prisma migrate deploy && node dist/main.js"]
 ```
 
-- [ ] `.dockerignore`: `node_modules`, `dist`, `.env`, `.git`
-- [ ] Image builds clean from a fresh clone
+- [x] `.dockerignore`: `node_modules`, `dist`, `.env`, `.git` (plus `coverage`, `test`, logs)
+- [x] Image builds clean from a fresh clone — verified by rebuilding from a context containing
+      *only* what `git ls-files` would hand a fresh clone. The resulting image carries `dist`,
+      `node_modules`, `prisma` and the manifests, and **no** `src`, `test` or `.env`.
+
+Four deviations from the template above, each fixing a failure that actually happened:
+
+- **`openssl` is installed in a shared `base` stage, not just the runner.** Prisma's query engine
+  links against libssl, and `prisma generate` picks its engine binary by sniffing the platform at
+  *build* time — without libssl in the build stage it resolves a different target than the app
+  then looks for, and the container dies with "could not locate the Query Engine for runtime
+  `linux-arm64-openssl-3.0.x`" *after* migrations have already applied.
+- **The runner copies with `--chown=node:node`.** `prisma migrate deploy` writes into
+  `node_modules/@prisma/engines`, so under the non-root `USER node` a root-owned tree fails at
+  startup with "Can't write to /app/node_modules/@prisma/engines".
+- **The build stage sets a placeholder `DATABASE_URL`.** `prisma.config.ts` resolves it the moment
+  the CLI loads, so `prisma generate` fails without one even though generation never connects.
+  Build-stage only — no real value is ever baked into an image.
+- **`USER node`** — not in the template, one line, and the container has no reason to run as root.
+
+`npm ci` deliberately keeps devDependencies: the runner's `CMD` shells out to the Prisma CLI,
+which *is* a devDependency. That is what puts the image at ~1 GB; trimming it means adding
+`prisma` as a runtime dependency, which is a deploy-day optimisation, not a correctness issue.
+
+**Verified live:** built the image, pointed it at a **fresh, empty** Postgres, and it applied
+`20260903162421_init` from its own `CMD`, created all 8 tables, booted Nest, answered
+`GET /api/v1/health` → `{"status":"ok"}`, and ran as `uid=1000(node)`.
 
 ---
 
