@@ -5,6 +5,7 @@ import { useRef } from "react";
 import { toast } from "sonner";
 import { ApiError, del, patch, post } from "./api";
 import { boardKey } from "./board";
+import { fireConflictFlash } from "./conflictFlash";
 import { between, first, last, sortByRank } from "./rank";
 import type { Board, Task } from "./types";
 
@@ -237,6 +238,21 @@ export function useMoveTask(boardId: string) {
           );
         }
         toast.error("Someone else moved this task — board updated");
+        // DESIGN §5's "conflict flash" — the card that just bounced back to
+        // its pre-drag position gets a one-shot 760ms box-shadow pulse
+        // alongside the toast (frontend ROADMAP Phase 11's own "Done when").
+        // Deferred a frame: when `currentTask` above also carries a
+        // different `columnId` than the stale cache had, this same
+        // `setQueryData` call moves the card to a different `BoardColumn`
+        // subtree — React unmounts the old instance and mounts a fresh one
+        // there rather than reusing it (reconciliation doesn't carry a keyed
+        // element across two different parent trees), and firing
+        // synchronously reaches only the old, about-to-vanish instance's
+        // listener. `requestAnimationFrame` waits for that remount to
+        // actually commit and paint first, confirmed live: firing inline
+        // flashed a `DragOverlay` ghost for one frame and never the card
+        // that's actually still on screen afterward.
+        requestAnimationFrame(() => fireConflictFlash(taskId));
       } else {
         toast.error("Couldn't move that card");
       }

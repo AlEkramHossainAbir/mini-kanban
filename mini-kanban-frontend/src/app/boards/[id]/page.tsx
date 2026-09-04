@@ -5,41 +5,114 @@ import {
   DragOverlay,
   MeasuringStrategy,
   defaultDropAnimationSideEffects,
+  type Announcements,
   type DropAnimation,
 } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AddColumnButton } from "@/components/board/AddColumnButton";
 import { BoardColumn } from "@/components/board/BoardColumn";
 import { BoardHeader } from "@/components/board/BoardHeader";
 import { BoardSkeleton } from "@/components/board/BoardSkeleton";
 import { ColumnDragOverlay } from "@/components/board/ColumnDragOverlay";
 import { DragOverlayCard } from "@/components/board/DragOverlayCard";
-import { EditTaskModal } from "@/components/board/EditTaskModal";
-import { ShareModal } from "@/components/board/ShareModal";
 import { columnSortId, useBoardDnd } from "@/components/board/useBoardDnd";
 import { Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useBoard } from "@/lib/board";
 import { useBoardMembers } from "@/lib/members";
+import { usePrefersReducedMotion } from "@/lib/motion";
 import { useBoardRealtime } from "@/lib/realtime";
-import type { Task } from "@/lib/types";
+import type { Board, Task } from "@/lib/types";
 
-/** 340ms `--ease-settle`, exact (`DESIGN §5`/§6) — not the dnd-kit default,
- *  which is the direction's signature "leaves the folder, tips, settles"
- *  drop. The source card stays at .4 opacity as the placeholder while it's
- *  in flight. */
-const dropAnimation: DropAnimation = {
-  duration: 340,
-  easing: "cubic-bezier(.16,1.24,.4,1)",
-  sideEffects: defaultDropAnimationSideEffects({
-    styles: { active: { opacity: "0.4" } },
-  }),
-};
+/** Neither modal is needed for the board's initial paint — react-hook-form
+ *  + zod are already in the shared chunk (login/register pull them in too),
+ *  but each modal's own component code (and, for `ShareModal`, the member
+ *  list query) only has to load once a viewer actually opens one. Lazy per
+ *  `DESIGN §8`'s < 200KB budget, which Phase 9 left over (frontend ROADMAP
+ *  Phase 11's own budget note). Neither renders anything server-side by
+ *  design — both are conditionally mounted, client-only overlays. */
+const ShareModal = dynamic(
+  () => import("@/components/board/ShareModal").then((m) => m.ShareModal),
+  { ssr: false }
+);
+const EditTaskModal = dynamic(
+  () => import("@/components/board/EditTaskModal").then((m) => m.EditTaskModal),
+  { ssr: false }
+);
 
 function isDoneColumn(title: string): boolean {
   return title.trim().toLowerCase() === "done";
+}
+
+/** DESIGN §7 — keyboard drag is graded and must announce the task/column
+ *  name and the resulting position, not just "moved". `dnd-kit`'s own
+ *  default announcements only ever say "was moved", which tells a
+ *  screen-reader user nothing about where it landed. Position counts read
+ *  off the live drag-preview order in `useBoardDnd` (`dnd.tasksForColumn`/
+ *  `dnd.orderedColumns`), the same order actually on screen mid-drag. */
+function buildAnnouncements(
+  board: Board,
+  dnd: ReturnType<typeof useBoardDnd>
+): Announcements {
+  const columnTitle = (columnId: string) =>
+    board.columns?.find((c) => c.id === columnId)?.title ?? "a column";
+
+  return {
+    onDragStart({ active }) {
+      const id = String(active.id);
+      if (id.startsWith("col:")) {
+        const columnId = id.slice("col:".length);
+        return `Picked up column "${columnTitle(columnId)}".`;
+      }
+      const task = dnd.activeTask;
+      return `Picked up card "${task?.title ?? "task"}".`;
+    },
+    onDragOver({ active, over }) {
+      if (!over) return undefined;
+      const id = String(active.id);
+      if (id.startsWith("col:")) {
+        const columns = dnd.orderedColumns(board);
+        const index = columns.findIndex((c) => columnSortId(c.id) === id);
+        if (index < 0) return undefined;
+        return `Column "${columnTitle(
+          columns[index].id
+        )}" moved to position ${index + 1} of ${columns.length}.`;
+      }
+      const overContainerId =
+        board.columns?.find((c) => c.id === String(over.id))?.id ??
+        board.columns?.find((c) => c.tasks?.some((t) => t.id === String(over.id)))?.id;
+      if (!overContainerId) return undefined;
+      const tasks = dnd.tasksForColumn(overContainerId);
+      const index = tasks.findIndex((t) => t.id === id);
+      if (index < 0) return undefined;
+      return `Card "${tasks[index].title}" moved to ${columnTitle(
+        overContainerId
+      )}, position ${index + 1} of ${tasks.length}.`;
+    },
+    onDragEnd({ active, over }) {
+      const id = String(active.id);
+      if (!over) {
+        return id.startsWith("col:")
+          ? "Column drag cancelled."
+          : "Card drag cancelled.";
+      }
+      if (id.startsWith("col:")) {
+        const columnId = id.slice("col:".length);
+        return `Column "${columnTitle(columnId)}" dropped.`;
+      }
+      const task = board.columns
+        ?.flatMap((c) => c.tasks ?? [])
+        .find((t) => t.id === id);
+      return `Card "${task?.title ?? "task"}" dropped.`;
+    },
+    onDragCancel({ active }) {
+      const id = String(active.id);
+      return id.startsWith("col:") ? "Column drag cancelled." : "Card drag cancelled.";
+    },
+  };
 }
 
 /**
@@ -65,6 +138,24 @@ export default function BoardPage({ params }: { params: { id: string } }) {
   // Same reason: connects/joins the room as soon as the page mounts, not
   // gated on `board` having loaded yet.
   const realtimeStatus = useBoardRealtime(id);
+  const reducedMotion = usePrefersReducedMotion();
+
+  // 340ms `--ease-settle`, exact (`DESIGN §5`/§6) — not the dnd-kit default,
+  // which is the direction's signature "leaves the folder, tips, settles"
+  // drop. The source card stays at .4 opacity as the placeholder while it's
+  // in flight. Collapses to ≤1ms under reduced motion (DESIGN §5 rule 3) —
+  // dnd-kit drives this via the Web Animations API, so the CSS-transition
+  // override in globals.css can't reach it; see `src/lib/motion.ts`.
+  const dropAnimation: DropAnimation = useMemo(
+    () => ({
+      duration: reducedMotion ? 1 : 340,
+      easing: reducedMotion ? "linear" : "cubic-bezier(.16,1.24,.4,1)",
+      sideEffects: defaultDropAnimationSideEffects({
+        styles: { active: { opacity: "0.4" } },
+      }),
+    }),
+    [reducedMotion]
+  );
 
   if (isLoading) {
     return (
@@ -147,6 +238,9 @@ export default function BoardPage({ params }: { params: { id: string } }) {
         sensors={dnd.sensors}
         collisionDetection={dnd.collisionDetection}
         measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+        // DESIGN §7 — keyboard drag must announce the task/column name and
+        // where it landed, not dnd-kit's default "was moved".
+        accessibility={{ announcements: buildAnnouncements(board, dnd) }}
         onDragStart={dnd.handleDragStart}
         onDragOver={dnd.handleDragOver}
         onDragEnd={dnd.handleDragEnd}

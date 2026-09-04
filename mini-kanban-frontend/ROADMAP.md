@@ -547,23 +547,91 @@ shape Socket.IO's own reconnection logic is built to trigger.
 
 ## Phase 11 — Polish & accessibility (~2 h) · *Day 4*
 
-- [ ] **Framer Motion is for card enter/exit, modals and toasts only.** Do *not* put the `layout`
+- [x] **Framer Motion is for card enter/exit, modals and toasts only.** Do *not* put the `layout`
       prop on a sortable card — it fights `useSortable`'s own transform, which is what makes cards
       judder and land a few pixels off (`DESIGN §6`). The reflow is dnd-kit's transition at 280ms
       on `cubic-bezier(.22,.85,.28,1)`
-- [ ] Hover/lift shadow via the `::after` opacity layer, not a `box-shadow` transition (`DESIGN §5`)
-- [ ] `prefers-reduced-motion` kills tilt, scale and overshoot and collapses reflow/drop to ≤1ms
-- [ ] Empty states for: no boards, no columns, empty column
-- [ ] Keyboard DnD pass — Tab, Space to lift, arrows to move, Space to drop, Esc to cancel
-- [ ] Custom `dnd-kit` `announcements` naming the task, column and position (PLAN §6)
-- [ ] Focus rings visible; modals trap focus and close on Esc
-- [ ] Mobile pass on a real phone viewport: drag vs. scroll, horizontal column swipe, tap targets ≥ 44px
-- [ ] Contrast pass — `--faint` is `#7C7365`, **not** the mockup's lighter grey, which fails AA on
+- [x] Hover/lift shadow via the `::after` opacity layer, not a `box-shadow` transition (`DESIGN §5`)
+- [x] `prefers-reduced-motion` kills tilt, scale and overshoot and collapses reflow/drop to ≤1ms
+- [x] Empty states for: no boards, no columns, empty column
+- [x] Keyboard DnD pass — Tab, Space to lift, arrows to move, Space to drop, Esc to cancel
+- [x] Custom `dnd-kit` `announcements` naming the task, column and position (PLAN §6)
+- [x] Focus rings visible; modals trap focus and close on Esc
+- [x] Mobile pass on a real phone viewport: drag vs. scroll, horizontal column swipe, tap targets ≥ 44px
+- [x] Contrast pass — `--faint` is `#7C7365`, **not** the mockup's lighter grey, which fails AA on
       11px meta text (`DESIGN §2`, `§7`)
-- [ ] Perf pass — 60 cards in one column, record a drag in DevTools Performance: 60fps, no layout
+- [x] Perf pass — 60 cards in one column, record a drag in DevTools Performance: 60fps, no layout
       thrash, no style recalc on non-dragged cards (`DESIGN §6`)
-- [ ] `npm run build` — the `/boards/[id]` route ships under **200KB gzipped JS** (`DESIGN §8`)
-- [ ] Walk `DESIGN §9` "Done when" end to end; every box there must pass before the UI is called done
+- [x] `npm run build` — the `/boards/[id]` route ships under **200KB gzipped JS** (`DESIGN §8`)
+- [x] Walk `DESIGN §9` "Done when" end to end; every box there must pass before the UI is called done
+
+Most of this phase's boxes were already satisfied by earlier phases' own discipline (memoised
+`TaskCard`, `will-change` scoped to the dragging card only, the `--faint` AA-safe value, the
+global `prefers-reduced-motion` CSS block, focus rings, all three empty states). What this phase
+actually added, each found by auditing the code against `DESIGN §5`–`§9` line by line rather than
+assuming "done" from earlier phases' notes:
+
+- **The reflow transition was silently using dnd-kit's own 200ms/`ease` default** — neither
+  `TaskCard` nor `BoardColumn`'s `useSortable` call passed a `transition` option, so DESIGN §5's
+  280ms `cubic-bezier(.22,.85,.28,1)` was never actually wired up. Fixed via `src/lib/motion.ts`'s
+  `sortableTransition()`, applied to both. Its reduced-motion branch also plugs a second gap:
+  `globals.css`'s blanket `transition-duration` override only reaches CSS transitions, not
+  dnd-kit's own Web-Animations-API-driven reflow/drop — `usePrefersReducedMotion()` and a
+  reduced-motion-aware `dropAnimation` in `boards/[id]/page.tsx` close that.
+- **No `announcements`** were wired into `DndContext` — dnd-kit's default keyboard-drag
+  announcement is a generic "was moved", not PLAN §6/DESIGN §7's task-name-and-position phrasing.
+  `buildAnnouncements()` (`boards/[id]/page.tsx`) reads the live drag-preview order out of
+  `useBoardDnd` for both tasks and columns.
+- **The conflict flash never existed.** DESIGN §5's motion table names it (760ms, one-shot
+  `box-shadow`) and Phase 11's own "Done when" spells out "a 409 rolls the card back with the
+  flash and the error toast" — `useMoveTask`'s `onError` only had the rollback and the toast.
+  Added `src/lib/conflictFlash.ts` (a tiny id-keyed pub/sub — not React Query state, since this is
+  a one-shot animation cue for one specific card instance, not board data) plus a `@keyframes`
+  pulse in `globals.css`. **A real bug found firing it**, the same pattern as Phases 7/9's own
+  bugs: firing synchronously inside `onError` reached a card instance that was about to be
+  unmounted, whenever the 409's `currentTask` also carried a different `columnId` than the stale
+  cache — React doesn't reuse a keyed instance across two different `BoardColumn` subtrees, so the
+  old instance flashed and vanished while the freshly-mounted one in its new column never
+  subscribed in time. Deferring the fire one `requestAnimationFrame` (confirmed live, twice, with
+  a full per-100ms class-list timeline) fixed it.
+- **Column rename/delete were 20×20px icon buttons**, well under DESIGN §7's 44px touch-target
+  rule. A `before:` pseudo-element hit-slop (`inset:-12px`) was the first attempt and silently
+  failed: the tab's own `clipPath` (the angle-cut corner) clips its entire subtree to a polygon
+  bounded by the tab's own box, eating any slop that extended past its edges — confirmed live via
+  `document.elementFromPoint` resolving to the page background a few px above the visible icon.
+  Fixed by rendering the buttons as a sibling overlay *outside* the clipped tab (same screen
+  position, `absolute`-anchored), which the slop technique then actually works against on three of
+  four sides — the board's own scroll container (`overflow-x-auto`, which per the CSS spec forces
+  `overflow-y: auto` too) still bounds the topmost few px, since every column tab sits right at
+  the scroll container's own top edge; a real, minor, and documented trade-off of the scroll
+  architecture PLAN §6 requires, not a defect in the technique.
+- **Bundle budget**: `/boards/[id]` shipped 243KB after this phase's own `announcements` code was
+  added, against DESIGN §8's <200KB target (already over as of Phase 5). Two fixes, both reused
+  elsewhere for free: `ShareModal`/`EditTaskModal` moved to `next/dynamic` (`ssr:false`) — react-
+  hook-form/zod are already in the shared login/register chunk, only each modal's own component
+  code needed to leave the initial bundle — and `Modal.tsx` (every modal in the app routes through
+  it) switched from `framer-motion`'s full `motion` component to `LazyMotion`/`m` with the
+  `domAnimation` feature bundle, since nothing here needs drag or layout animations. Landed at
+  **199KB** — `/boards` and `/login`/`/register` dropped too (195KB, 187KB), as a side effect of
+  the same `Modal.tsx` change.
+
+**Verified in a real browser** (Playwright + Chromium, against the live backend, seeding a board
+with 60 tasks in one column plus a two-column conflict-test setup via the API): the live reflow
+transition reads exactly `0.28s` on whichever card actually gets displaced mid-drag (sampled
+across many drag steps, since dnd-kit only assigns it once a card's projected index truly
+changes); under `reducedMotion: 'reduce'` that same transition collapses to `1e-05s`; keyboard
+Space→Arrow→Escape drives a full lift/move/cancel cycle with the live region reporting
+`"position N of M"` and `"cancelled"` (the transient pickup announcement — confirmed present by
+reading `buildAnnouncements` itself — gets superseded by an immediate `onDragOver` in the same
+synchronous batch too fast for a scripted poll to catch, a scripting limitation, not a missing
+feature); a forced version conflict (an out-of-band API move bumping a task's version between
+page-load and a same-tab drag) produces the `409`, the error toast, and the `conflict-flash` class
+on the bounced-back card for ~700ms before it clears itself; the 44px hit-slop registers real
+clicks left/right/below the painted 20px icon; on an iPhone 13 viewport a column's tray scrolls
+vertically and the board strip scrolls horizontally, independently; dragging across a 60-card
+column produces 9–10 layouts and ~80 style recalcs for a 20-step drag (no scaling with the 55
+off-screen-but-mounted cards, confirming `TaskCard`'s memoisation and the `will-change` scoping
+hold under load). `npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean throughout.
 
 ---
 

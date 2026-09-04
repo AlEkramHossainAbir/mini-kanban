@@ -62,3 +62,20 @@ body{
   }
   .motion-fade{ transition-duration:100ms !important; }
 }
+
+/* DESIGN §5's "conflict flash" — a 409 rolls the card back to its pre-drag
+   position, and this pulses alongside the error toast (frontend ROADMAP
+   Phase 11). A one-shot `@keyframes` animation, deliberately not a CSS
+   transition — rule 1 above bans transitioning `box-shadow` continuously,
+   but a single 760ms pulse that starts and ends at zero is exactly the
+   "one-shot" carve-out DESIGN §5's own motion table names for this row.
+   Collapses under `prefers-reduced-motion` via the same blanket
+   `animation-duration` override above — no separate rule needed. */
+@keyframes conflict-flash{
+  0%{ box-shadow:0 0 0 0 rgba(178,66,52,0); }
+  30%{ box-shadow:0 0 0 4px rgba(178,66,52,.55); }
+  100%{ box-shadow:0 0 0 0 rgba(178,66,52,0); }
+}
+.conflict-flash{
+  animation:conflict-flash 760ms var(--ease);
+}

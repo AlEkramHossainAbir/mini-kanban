@@ -3,6 +3,8 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { memo } from "react";
+import { useConflictFlash } from "@/lib/conflictFlash";
+import { sortableTransition, usePrefersReducedMotion } from "@/lib/motion";
 import type { Task } from "@/lib/types";
 
 /**
@@ -81,6 +83,11 @@ function TaskCardImpl({
   // has no real id yet — it can't be dragged (a move would target a temp id
   // the server has never heard of) or opened for edit (nothing to PATCH).
   const pending = task.pending === true;
+  const reducedMotion = usePrefersReducedMotion();
+  // DESIGN §5's one-shot "conflict flash" — fired from `useMoveTask`'s
+  // `onError` (`src/lib/tasks.ts`) the instant a 409 rolls this exact card
+  // back to where it started, alongside the error toast.
+  const conflictFlashing = useConflictFlash(task.id);
 
   const {
     attributes,
@@ -93,6 +100,9 @@ function TaskCardImpl({
     id: task.id,
     disabled: !sortable || pending,
     data: { type: "task" },
+    // DESIGN §5's 280ms reflow, not dnd-kit's 200ms/ease default — see
+    // `src/lib/motion.ts`.
+    transition: sortableTransition(reducedMotion),
   });
 
   const clickable = Boolean(onOpen) && !pending;
@@ -104,7 +114,7 @@ function TaskCardImpl({
       {...(sortable ? listeners : {})}
       onClick={clickable ? onOpen : undefined}
       aria-busy={pending || undefined}
-      className={`relative rounded-card border border-card-edge bg-card px-[13px] pb-[11px] pt-[29px] shadow-card${clickable ? " cursor-pointer" : ""}`}
+      className={`relative rounded-card border border-card-edge bg-card px-[13px] pb-[11px] pt-[29px] shadow-card${clickable ? " cursor-pointer" : ""}${conflictFlashing ? " conflict-flash" : ""}`}
       style={{
         backgroundImage:
           "linear-gradient(rgba(178,66,52,.5) 0 1px, transparent 1px), repeating-linear-gradient(rgba(47,92,134,.08) 0 1px, transparent 1px 21px)",

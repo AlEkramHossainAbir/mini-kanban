@@ -7,6 +7,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui";
 import { useDeleteColumn, useRenameColumn } from "@/lib/columns";
+import { sortableTransition, usePrefersReducedMotion } from "@/lib/motion";
 import type { Column, Task } from "@/lib/types";
 import { columnSortId } from "./useBoardDnd";
 import { TaskCard } from "./TaskCard";
@@ -81,6 +82,8 @@ export function BoardColumn({
   // (see `columnSortId`'s docblock) so the two never collide.
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
+  const reducedMotion = usePrefersReducedMotion();
+
   // The tab itself is the column's drag handle — no separate grip
   // affordance, matching how a card is its own handle (DESIGN §7).
   const {
@@ -94,6 +97,9 @@ export function BoardColumn({
     id: columnSortId(column.id),
     disabled: !canEdit || pending,
     data: { type: "column" },
+    // DESIGN §5's 280ms reflow, not dnd-kit's 200ms/ease default — see
+    // `src/lib/motion.ts`.
+    transition: sortableTransition(reducedMotion),
   });
 
   useEffect(() => {
@@ -112,10 +118,12 @@ export function BoardColumn({
     renameColumn.mutate({ columnId: column.id, title });
   };
 
+  const showEditButtons = canEdit && !pending && !renaming;
+
   return (
     <div
       ref={setSortableRef}
-      className="flex w-[280px] flex-shrink-0 flex-col"
+      className="relative flex w-[280px] flex-shrink-0 flex-col"
       aria-busy={pending || undefined}
       style={{
         opacity: isDragging ? 0.4 : pending ? 0.6 : undefined,
@@ -155,33 +163,52 @@ export function BoardColumn({
             className="min-w-0 flex-1 rounded-[2px] border border-[rgba(0,0,0,.25)] bg-[rgba(255,255,255,.55)] px-1.5 py-0.5 font-archivo text-[11px] font-bold uppercase tracking-[.1em] text-manila-ink"
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate font-archivo text-[11px] font-bold uppercase tracking-[.12em] text-manila-ink">
+          // Reserves room under the overlay buttons below so the title never
+          // truncates behind them — they've been pulled out of this element
+          // entirely (see the sibling overlay), not just visually spaced.
+          <span
+            className={`min-w-0 flex-1 truncate font-archivo text-[11px] font-bold uppercase tracking-[.12em] text-manila-ink${showEditButtons ? " pr-11" : ""}`}
+          >
             {pending ? "filing…" : column.title}
             <span className="ml-1.5 tabular-nums opacity-70">{tasks.length}</span>
           </span>
         )}
-
-        {canEdit && !pending && !renaming && (
-          <span className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label={`Rename ${column.title}`}
-              onClick={startRename}
-              className="rounded-[2px] p-1 text-manila-ink opacity-60 transition-opacity duration-hover hover:opacity-100"
-            >
-              <Pencil className="h-3 w-3" aria-hidden />
-            </button>
-            <button
-              type="button"
-              aria-label={`Delete ${column.title}`}
-              onClick={() => setConfirmingDelete(true)}
-              className="rounded-[2px] p-1 text-manila-ink opacity-60 transition-opacity duration-hover hover:opacity-100"
-            >
-              <Trash2 className="h-3 w-3" aria-hidden />
-            </button>
-          </span>
-        )}
       </div>
+
+      {/* Rendered as a sibling of the tab, not a descendant — the tab's own
+          `clipPath` above clips its *entire* subtree to a polygon bounded by
+          its own box (`0 0` to `100% 100%`), which silently ate the 44px
+          hit-slop below (DESIGN §7) when these buttons lived inside it: any
+          part of the slop extending past the tab's edges was clipped away
+          along with the corner notch, confirmed live via
+          `document.elementFromPoint` resolving to the page background
+          instead of the button a few px above its visible edge. Living
+          outside the clip keeps the same screen position (`absolute`,
+          anchored to the same padding the tab used) without being subject
+          to it. */}
+      {showEditButtons && (
+        <div className="absolute right-3.5 top-[7px] flex items-center gap-1">
+          <button
+            type="button"
+            aria-label={`Rename ${column.title}`}
+            onClick={startRename}
+            // The painted glyph stays 20px (12px icon + 4px padding); the
+            // transparent `before:` hit-slop below extends the actual
+            // clickable box to 44px on every side around it.
+            className="relative rounded-[2px] p-1 text-manila-ink opacity-60 transition-opacity duration-hover before:absolute before:inset-[-12px] before:content-[''] hover:opacity-100"
+          >
+            <Pencil className="h-3 w-3" aria-hidden />
+          </button>
+          <button
+            type="button"
+            aria-label={`Delete ${column.title}`}
+            onClick={() => setConfirmingDelete(true)}
+            className="relative rounded-[2px] p-1 text-manila-ink opacity-60 transition-opacity duration-hover before:absolute before:inset-[-12px] before:content-[''] hover:opacity-100"
+          >
+            <Trash2 className="h-3 w-3" aria-hidden />
+          </button>
+        </div>
+      )}
 
       <div
         ref={setNodeRef}
