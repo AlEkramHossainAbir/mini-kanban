@@ -35,6 +35,15 @@ services:
       args:
         BACKEND_URL: ${BACKEND_URL}
     env_file: .env
+    # PORT=4000 in root .env is the backend's (ROADMAP Phase 13). Both services
+    # share one env_file, and Next's standalone server honours process.env.PORT
+    # — without this override the frontend container silently listens on 4000
+    # too, so container port 3000 has nothing on it and the 3000:3000 mapping
+    # below is dead. Found live: `docker logs` showed the frontend's own
+    # "Local: http://<host>:4000" instead of :3000. A service-level
+    # `environment:` entry wins over env_file, which is why this fixes it.
+    environment:
+      PORT: 3000
     depends_on: [backend]
     ports: ["3000:3000"]
 
