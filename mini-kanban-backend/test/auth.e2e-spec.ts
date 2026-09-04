@@ -213,6 +213,53 @@ describe('Auth (e2e)', () => {
     });
   });
 
+  describe('CSRF (PLAN §5)', () => {
+    // The header only defends anything if the server actually checks it. Before
+    // CsrfGuard existed, the frontend sent it and a mutation sent *without* it
+    // was still accepted — these specs are what keep that from regressing.
+    it('403s a state-changing request that carries no X-Requested-With header', async () => {
+      const user = await ctx.signUp();
+
+      const res = await user.agent
+        .post('/api/v1/boards')
+        .set('X-Requested-With', '')
+        .send({ title: 'csrf probe' });
+
+      expect(res.status).toBe(403);
+      // And nothing was created as a side effect of the rejected request.
+      const boards = await user.agent.get('/api/v1/boards').expect(200);
+      expect(boards.body.items).toHaveLength(0);
+    });
+
+    it('allows the same request once the header is present', async () => {
+      const user = await ctx.signUp();
+      await user.agent
+        .post('/api/v1/boards')
+        .send({ title: 'with header' })
+        .expect(201);
+    });
+
+    it('leaves safe methods alone — GET needs no header', async () => {
+      const user = await ctx.signUp();
+      await user.agent
+        .get('/api/v1/boards')
+        .set('X-Requested-With', '')
+        .expect(200);
+    });
+
+    it('rejects before authentication, so it cannot be probed with a bad session', async () => {
+      // No cookies on this agent at all: the CSRF rejection (403) must win over
+      // the missing-session rejection (401), proving the guard runs first.
+      const anon = ctx.client();
+      const res = await anon
+        .post('/api/v1/boards')
+        .set('X-Requested-With', '')
+        .send({ title: 'nope' });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('rate limiting', () => {
     it('429s the 6th login attempt in a minute (5/min, PLAN §5)', async () => {
       // Its own agent, so its own source IP and its own fresh counter.

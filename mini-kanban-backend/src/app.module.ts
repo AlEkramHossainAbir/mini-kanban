@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { BoardsModule } from './boards/boards.module';
 import { ColumnsModule } from './columns/columns.module';
 import { validateEnv } from './common/env.validation';
+import { CsrfGuard } from './common/guards/csrf.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { GatewayModule } from './gateway/gateway.module';
@@ -31,9 +32,12 @@ import { TasksModule } from './tasks/tasks.module';
   controllers: [HealthController],
   providers: [
     // Order matters: rate-limit first (even unauthenticated callers), then
+    // reject state-changing requests that carry no custom header (PLAN §5's
+    // CSRF defence — cheap, and worth doing before any session lookup), then
     // require a session. BoardAccessGuard/RolesGuard (Phase 5) are per-route,
     // not global — they need a resolved boardId this guard doesn't have.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })

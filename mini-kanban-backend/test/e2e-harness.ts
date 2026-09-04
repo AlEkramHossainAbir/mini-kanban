@@ -65,6 +65,11 @@ export async function createE2eContext(): Promise<E2eContext> {
     clientCount += 1;
     const agent = request.agent(server);
     agent.set('X-Forwarded-For', `203.0.113.${clientCount % 254}`);
+    // Every real client sends this on mutations (frontend src/lib/api.ts), and
+    // CsrfGuard now rejects state-changing requests without it (PLAN §5). Set
+    // once per agent so specs read as the app is actually used; the guard's own
+    // rejection path is covered explicitly in auth.e2e-spec.ts.
+    agent.set('X-Requested-With', 'mini-kanban');
     return agent;
   };
 

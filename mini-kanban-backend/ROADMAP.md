@@ -219,23 +219,37 @@ last-owner demotion added **0** rows between them. `npm run test` (65 tests, 3 n
 
 ---
 
-## ⚠️ Open gap — CSRF header is sent but never checked
+## CSRF header enforcement — **fixed**
 
-PLAN §5 lists, as the CSRF defence: *"every mutating request additionally requires a custom header
-(e.g. `X-Requested-With`), which forces a CORS preflight"*. The **client half exists** — frontend
-`src/lib/api.ts` sends `X-Requested-With: mini-kanban` on every mutation — but **nothing on the
-server verifies it**, so it currently buys no protection.
+PLAN §5 promises that *"every mutating request additionally requires a custom header
+(e.g. `X-Requested-With`), which forces a CORS preflight"*. Only the **client half** existed: the
+frontend sent `X-Requested-With: mini-kanban` on every mutation and nothing on the server checked
+it, so the header bought no protection. Found while verifying frontend Phase 3/4 and confirmed two
+ways — `grep -rniE 'csrf|requested-with' src/` returned **0 matches**, and a live
+`POST /api/v1/boards` with a valid session cookie and **no** header returned **`201 Created`**.
 
-Found while verifying frontend Phase 3/4, and confirmed two ways:
-- `grep -rniE 'csrf|requested-with' src/` → **0 matches**
-- live probe: `POST /api/v1/boards` with a valid session cookie and **no** `X-Requested-With`
-  header returned **`201 Created`**
+- [x] `src/common/guards/csrf.guard.ts` — rejects `POST`/`PUT`/`PATCH`/`DELETE` that arrive
+      without the header. Checks **presence, not value**: the security property comes from the
+      header being unsettable cross-origin without a preflight that `enableCors` will refuse, so
+      pinning an exact string would add brittleness and no protection. Non-HTTP contexts are
+      skipped — WebSocket frames carry no HTTP headers, and the gateway authenticates its
+      handshake with a single-use ws-ticket instead (Phase 4/9).
+- [x] Registered as `APP_GUARD` in `app.module.ts` **between** `ThrottlerGuard` and `JwtAuthGuard`
+      — the check is cheap and should reject before any session lookup.
+- [x] `test/e2e-harness.ts` — agents now send the header by default, so all 85 pre-existing
+      mutating calls keep exercising the app the way it is really used.
+- [x] **4 new specs** in `auth.e2e-spec.ts`: a headerless mutation `403`s **and creates nothing**;
+      the same request succeeds with the header; `GET` is unaffected; and the rejection happens
+      **before** authentication (an anonymous headerless `POST` gets `403`, not `401`, proving the
+      guard ordering).
+- [x] **Verified live end to end**: with the guard active, the app's own flow still works
+      (register `201` → login `200` → create board `201` → refresh `200` → logout `200`), while the
+      same board creation **without** the header now returns **`403`** instead of the previous
+      `201`. `GET /boards` still `200`.
+- [x] Full suite green afterwards: **54 e2e + 65 unit tests passing**.
 
-`SameSite=Lax` still blocks classic cross-site form POSTs, so this is not wide open — but the
-second layer PLAN §5 claims is not actually there. Fix is small: a global `APP_GUARD` that rejects
-`POST`/`PATCH`/`PUT`/`DELETE` without the header, alongside `ThrottlerGuard` and `JwtAuthGuard` in
-`app.module.ts`. **Not done — deliberately left for review**, since it is a security decision and
-sits outside the frontend phase where it surfaced.
+`SameSite=Lax` was already blocking classic cross-site form POSTs; this restores the second layer
+§5 describes, so neither control has to be sufficient alone.
 
 ---
 
