@@ -251,26 +251,78 @@ all clean.
 
 Build the board **without** drag-and-drop first. It's much easier to debug DnD on top of a board you already trust.
 
-- [ ] `/boards/[id]` → `useQuery(['board', id])`
-- [ ] Horizontal column strip in its **own dedicated scroll container**, kept separate from the columns' vertical scroll (PLAN §6 — this separation is what stops mobile swipe fighting the drag)
-- [ ] `TaskCard`, `Column`, `BoardHeader` (title, members, share button)
-- [ ] Sort tasks by `rank` string with `id` as tiebreak — **the only sort in the app** (PLAN §6)
-- [ ] React keys are `task.id`, never the array index
-- [ ] Column header count derived from `tasks.length` — no separate counter (PLAN §2)
-- [ ] Skeleton board while loading; error state with a retry button
+- [x] `/boards/[id]` → `useQuery(['board', id])` — `src/lib/board.ts`'s `useBoard`. Retries skip
+      403/404 (removed access, deleted board — retrying changes nothing) but keep retrying a
+      transient network/500 failure, so a genuinely broken API surfaces the error state a couple
+      of seconds later than a hard failure would, by design.
+- [x] Horizontal column strip in its **own dedicated scroll container**, kept separate from the
+      columns' vertical scroll (PLAN §6 — this separation is what stops mobile swipe fighting the
+      drag). Each column's tray also scrolls independently, vertically, capped at
+      `calc(100vh - 300px)` — a Phase 6 judgment call, since DESIGN doesn't pin an exact height;
+      Phase 7's `autoScroll` may want to revisit it.
+- [x] `TaskCard`, `BoardColumn` (`Column` was already a type name — file kept as `BoardColumn.tsx`
+      to avoid the clash), `BoardHeader` (title, members, share button) — `src/components/board/`
+- [x] Sort tasks by `rank` string with `id` as tiebreak — **the only sort in the app** (PLAN §6) —
+      `src/lib/rank.ts`'s `sortByRank`, applied to both columns and each column's tasks. The API
+      already returns both pre-sorted this way; this is the defensive client-side re-sort PLAN §6
+      calls for, so an optimistic write (Phase 8) or a WebSocket patch (Phase 10) landing out of
+      order can't disagree with the server's rank.
+- [x] React keys are `task.id`, never the array index
+- [x] Column header count derived from `tasks.length` — no separate counter (PLAN §2)
+- [x] Skeleton board while loading; error state with a retry button — `BoardSkeleton.tsx`. The
+      error state distinguishes a 403/404 ("This board isn't available" + a link back to
+      `/boards`, since retrying can't fix a permissions problem) from a genuine fetch failure
+      ("Could not load this board" + "Try again").
 
 **The Filing Room shell** (`DESIGN §4`) — build it here, before drag exists, so DnD is debugged on
 a board that already looks right:
 
-- [ ] Angle-cut manila **column tab** with the `clip-path` from `DESIGN §4.2`; status colour lives
-      in the tab gradient and nowhere else
-- [ ] **Tray** = the folder body, `position:relative`, square top-left tucked under the tab
+- [x] Angle-cut manila **column tab** with the `clip-path` from `DESIGN §4.2`; status colour lives
+      in the tab gradient and nowhere else. Matched case-insensitively against the column's own
+      title (`in progress`/`blocked`/`done`); everything else, including "Backlog"/"In review",
+      falls through to the same default gradient the table already assigns them.
+- [x] **Tray** = the folder body, `position:relative`, square top-left tucked under the tab
       (`DESIGN §4.3`)
-- [ ] **Index card**: 29px top padding, red header rule + 21px ruled lines as CSS gradients, the
+- [x] **Index card**: 29px top padding, red header rule + 21px ruled lines as CSS gradients, the
       `filed` label, hairline, meta row (`DESIGN §4.4`). Card title line-height **must** be 21px —
       it is what the ruling lines up with
-- [ ] Empty tray reads `no cards filed`; done cards use the struck-through treatment
-- [ ] Card skeletons carry the ruled background too (`DESIGN §4.7`)
+- [x] Empty tray reads `no cards filed`; done cards use the struck-through treatment. "Done" is a
+      property of the **column**, not the task — `Task` carries no status field (PLAN §2's
+      committed schema), so a card is treated as done iff its column's title is "Done".
+- [x] Card skeletons carry the ruled background too (`DESIGN §4.7`)
+
+Two adaptations, both because the committed `Task` schema (PLAN §2) carries only
+`title`/`description`/`rank`/`version`/timestamps — no `kind` taxonomy, due date, or assignee for
+the mockup's `filed`-label ticket code, `due …` meta and avatar to draw from:
+
+- The `filed` label reads the task's creation date instead of a ticket code, at `--faint` — §4.4's
+  own default-kind colour, since there is no kind. The meta row reads a relative "updated …"
+  instead of a due date, with no avatar. The `overdue` stamp is skipped outright — there is no due
+  date to be overdue against.
+- **`BoardHeader`'s "share button" opens a real share flow** (`ShareModal.tsx`): every member sees
+  who has access (`GET .../members` is member-only per PLAN §3's route table, not OWNER-only), and
+  an OWNER additionally sees an invite-by-email form (`POST .../members`), since no later phase in
+  this roadmap is scoped for board sharing otherwise. **Role change and member removal have no UI**
+  — their endpoints exist server-side, but building them was judged past what "share button" on its
+  own implies; worth adding as a follow-up if wanted.
+
+**Verified in a real browser** (headless Chrome over CDP, against an isolated production build —
+copied out of the working tree so it didn't collide with the running `next dev` — and the live
+backend), seeding boards/columns/tasks directly via the API since column/task creation is Phase 9:
+**25/27 checks passed outright**; the 2 failures were re-run individually and confirmed as
+test-script bugs, not app defects — one selector matched the app-shell's "Mini Kanban" logo link
+instead of `BoardHeader`'s own "← your boards" link (both exist, as intended), and one sampled the
+error state before a legitimate retry-with-backoff had finished, which a longer wait confirmed
+renders correctly. All 5 columns render in creation order with per-title tab gradients (verified
+via computed `background-image`, including the two unmapped-name fallbacks); task counts match
+`tasks.length`; the empty tray reads "no cards filed"; a Done-column card is struck through and
+faded while a Backlog-column card isn't; the share flow lists members, an OWNER's invite makes a
+real user a real member (who can then open the board, sees the member list, but no invite form as
+an EDITOR), a duplicate invite surfaces the `409` as a field error, and a genuine outsider still
+gets the 403 "not available" state; a zero-column board reads "no columns filed yet"; loading is
+skeletons, never a spinner. `npx tsc --noEmit`, `npm run lint` and `npm run build` all clean —
+`/boards/[id]` ships at **206 kB** First Load JS (Phase 11's < 200KB budget already noted as
+running over as of Phase 5; Phase 7's `dnd-kit` will add more on top).
 
 ---
 

@@ -45,3 +45,18 @@ export const createBoardSchema = z.object({
 });
 
 export type CreateBoardValues = z.infer<typeof createBoardSchema>;
+
+/**
+ * Mirrors AddMemberDto (backend src/boards/dto/add-member.dto.ts): a
+ * registered user's email plus the role to grant. The role choice is
+ * deliberately narrowed to EDITOR/VIEWER in the UI — the DTO itself accepts
+ * any BoardRole, but granting OWNER through a casual invite isn't a flow
+ * this app offers; ownership changes go through the role-change endpoint,
+ * which has no frontend yet (see the frontend ROADMAP Phase 6 note).
+ */
+export const addMemberSchema = z.object({
+  email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
+  role: z.enum(["EDITOR", "VIEWER"]),
+});
+
+export type AddMemberValues = z.infer<typeof addMemberSchema>;
