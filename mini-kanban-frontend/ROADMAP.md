@@ -54,9 +54,20 @@ npm i @tanstack/react-query @tanstack/react-query-devtools \
 | `react-hook-form` + `zod` | auth form validation, mirroring the server DTOs |
 | `sonner` | toasts — used for move-conflict and undo |
 
+- [x] Installed — exactly the 15 packages above, nothing else. Verified with `npm run build`:
+      compiles clean on Next 14.2.35 / React 18, `/` at 87.4 kB First Load JS (the Phase 11
+      < 200KB budget starts with plenty of headroom).
+- [x] **React 18 peer ranges checked**, since pinning React 18 is the whole reason Phase 0 refused
+      Next 15: `framer-motion@13.2.0` (`^18 || ^19`), `sonner@2.0.8` (`^18 || ^19`),
+      `lucide-react@1.40.0` (`^16.5.1 … ^19`), `@dnd-kit/core@6.3.1` + `@dnd-kit/sortable@10.0.0`
+      (`>=16.8`), `@hookform/resolvers@5.9.1` (accepts `zod@^4`, installed `4.5.4`). `npm i`
+      resolved with **zero `ERESOLVE` conflicts and no `--legacy-peer-deps`**.
 - [ ] Fonts are **Archivo + Courier Prime via `next/font/google`** (`DESIGN §3`) — not a `<link>`
       tag, not a third family
-- [ ] **No further dependency** may be added for styling, icons or animation. The Filing Room look
+      *(deferred to Phase 3, which owns `src/app/layout.tsx` and re-lists this same item — the
+      scaffold's `localFont` Geist pair is still in place and gets replaced there, together with
+      the `globals.css` tokens, so the font swap and the palette land as one coherent pass.)*
+- [x] **No further dependency** may be added for styling, icons or animation. The Filing Room look
       is CSS gradients and these packages only (`DESIGN §8`)
 
 ---
