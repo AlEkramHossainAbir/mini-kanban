@@ -91,12 +91,12 @@ npx prisma studio          # eyeball the tables
 
 `src/auth/` — controller, service, `jwt.strategy.ts`, DTOs.
 
-- [ ] `POST /auth/register` — bcrypt cost 12, unique-email conflict → `409`
-- [ ] `POST /auth/login` — sets `mk_at` (15 min, path `/`) and `mk_rt` (7 d, path `/api/v1/auth/refresh`), both `httpOnly`, `secure` in prod, `sameSite: 'lax'` (PLAN §1)
-- [ ] `POST /auth/refresh` — verify SHA-256 hash → **rotate** (revoke old row, issue new) → detect reuse of a revoked token → revoke that user's whole token family
-- [ ] `POST /auth/logout` — real server-side revocation, then clear both cookies
-- [ ] `GET /auth/me` — current user for the app shell
-- [ ] `GET /auth/ws-ticket` — **short-lived (~30 s), single-use token returned in the JSON body** for the Socket.IO handshake
+- [x] `POST /auth/register` — bcrypt cost 12, unique-email conflict → `409`
+- [x] `POST /auth/login` — sets `mk_at` (15 min, path `/`) and `mk_rt` (7 d, path `/api/v1/auth/refresh`), both `httpOnly`, `secure` in prod, `sameSite: 'lax'` (PLAN §1)
+- [x] `POST /auth/refresh` — verify SHA-256 hash → **rotate** (revoke old row, issue new) → detect reuse of a revoked token → revoke that user's whole token family
+- [x] `POST /auth/logout` — real server-side revocation, then clear both cookies
+- [x] `GET /auth/me` — current user for the app shell
+- [x] `GET /auth/ws-ticket` — **short-lived (~30 s), single-use token returned in the JSON body** for the Socket.IO handshake
 
 > **Why the ws-ticket exists:** the access token is `httpOnly`, so browser JS can't read it to pass into
 > `io(url, { auth: { token } })`, and a WebSocket upgrade to a *different* origin won't carry `SameSite=Lax`
@@ -104,10 +104,10 @@ npx prisma studio          # eyeball the tables
 > then hands that ticket to Socket.IO. This is a refinement of PLAN §3 — it avoids trying to proxy a WS
 > upgrade through Next.js rewrites, which is unreliable.
 
-- [ ] `JwtAuthGuard` registered as `APP_GUARD` with a `@Public()` escape hatch (PLAN §4)
-- [ ] Tight throttle on `/auth/login` + `/auth/register`: `@Throttle({ default: { ttl: 60_000, limit: 5 } })`
+- [x] `JwtAuthGuard` registered as `APP_GUARD` with a `@Public()` escape hatch (PLAN §4)
+- [x] Tight throttle on `/auth/login` + `/auth/register`: `@Throttle({ default: { ttl: 60_000, limit: 5 } })`
 
-**Done when:** register → login → hit a protected route → refresh → logout → the old refresh token is rejected. All via REST client with a cookie jar.
+**Done when:** register → login → hit a protected route → refresh → logout → the old refresh token is rejected. All via REST client with a cookie jar. ✅ Verified with curl + a cookie jar against a live Postgres: register → 409 on duplicate email → 401 on `/auth/me` with no cookie → login sets `mk_at`/`mk_rt` with the correct paths → `/auth/me` succeeds → refresh rotates the token and the old one now gets `401 "Session revoked"` on replay → logout revokes and `/auth/me` afterward is `401`.
 
 ---
 
