@@ -27,21 +27,18 @@ are already written down there. Don't relitigate them without a real reason.
 
 - Root repo is a **single repository with vendored directories** (Phase 0 of ROADMAP.md is
   done — no more git submodules, no `.gitmodules`).
-- `mini-kanban-backend/` — **backend ROADMAP Phases 0–8 are done.** Prisma schema + committed
-  migration, app-wide wiring on `/api/v1`, auth (cookie JWT + rotating refresh tokens), the
-  `BoardAccessGuard`/`RolesGuard` chain, boards + members, columns + the rank utility, and
-  tasks + the `PATCH /tasks/:id/move` endpoint with `version`/`409` optimistic concurrency.
-  All 22 endpoints in PLAN §3's table exist. **Phase 9 (WebSocket gateway) is also done** —
-  `BoardGateway` with ws-ticket handshake middleware, an authorized `join`, and 8 `task.*`/
-  `column.*` events broadcast after commit. **Next up: Phase 10 (audit log).**
-- `mini-kanban-frontend/` — Next 14 / React 18 / TypeScript / Tailwind scaffold only (Phase 0 of
-  the frontend roadmap). Boilerplate hero removed. Nothing past scaffold exists yet — this is
-  correct, root ROADMAP Phase 2 gates frontend work behind backend Phases 5–9. **The visual
-  direction is settled**: "Filing Room" (walnut desk, angle-cut manila tabs, ruled index cards),
-  chosen 2026-09-04 from three prototypes and specified in `mini-kanban-frontend/DESIGN.md`. The
-  scaffold's `globals.css` and `tailwind.config.ts` still hold create-next-app defaults — frontend
-  Phase 3 replaces them with the Filing Room tokens, including deleting the scaffold's
-  `prefers-color-scheme` block, since this design is deliberately single-theme.
+- `mini-kanban-backend/` — **backend ROADMAP Phases 0–13 are done** (all 22 endpoints in PLAN
+  §3's table, the WebSocket gateway, the audit log, the CSRF header guard fix, tests, and the
+  Dockerfile). Only **Phase 14 (deploy)** remains, and it's marked optional/Day-4. See
+  `mini-kanban-backend/ROADMAP.md` for the phase-by-phase detail and verification notes.
+- `mini-kanban-frontend/` — **frontend ROADMAP Phases 0–8 are done**: scaffold, the same-origin
+  proxy, tokens/providers/primitives, auth pages, the boards list, the read-only board view (the
+  Filing Room shell — angle-cut manila tabs, ruled index cards), `dnd-kit` drag-and-drop, and the
+  optimistic move/conflict-handling layer (`onMutate`/rollback/Undo/per-task sequencing in
+  `useMoveTask`). **Next up: Phase 9 (task & column CRUD)** — add/edit/delete task, add/rename/
+  delete column, column drag. **The visual direction is settled**: "Filing Room" (walnut desk,
+  angle-cut manila tabs, ruled index cards), chosen 2026-09-04 and specified in
+  `mini-kanban-frontend/DESIGN.md`. See `mini-kanban-frontend/ROADMAP.md` for detail.
 - Root `.gitignore` and root `.env.example` both exist (Phase 1 done). Still missing from root
   ROADMAP.md Phase 3: `docker-compose.yml` — note its own timing said "end of Day 1 for `db` +
   `backend`", so it is the one item running behind its plan.

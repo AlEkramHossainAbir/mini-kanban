@@ -42,12 +42,13 @@ function findContainer(order: DragOrder, id: string): string | undefined {
  * verbatim, the live cross-column reorder preview, and turning a drop into
  * the neighbour-id payload PLAN §3's move endpoint expects.
  *
- * What this hook does *not* do — deliberately, it's frontend ROADMAP
- * Phase 8's scope: `onMutate` cache snapshots for rollback, per-task
- * sequence numbers, and the post-move Undo toast. The drag preview here
- * already gives instant visual feedback, so those refinements are about
- * the network round trip's edges (conflicts, rapid re-drags), not the drag
- * itself.
+ * The optimistic cache write, rollback-on-error, per-task sequence numbers
+ * and the post-move Undo toast are `useMoveTask`'s job (`src/lib/tasks.ts`,
+ * frontend ROADMAP Phase 8) — this hook only computes the payload (and, for
+ * Undo, the pre-move payload to return to) and hands it to that mutation.
+ * The drag preview here still owns the *instant* visual feedback; Phase 8's
+ * refinements are about the network round trip's edges (conflicts, rapid
+ * re-drags), not the drag itself.
  */
 export function useBoardDnd(board: Board | undefined, boardId: string) {
   const moveTask = useMoveTask(boardId);
@@ -221,11 +222,19 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
         expectedVersion: task.version,
       };
 
+      // Where the card started — carried through so a successful move's
+      // toast can offer a symmetric Undo (PLAN §6, frontend ROADMAP Phase 8).
+      const undoTo = {
+        targetColumnId: start.columnId,
+        beforeTaskId: start.beforeTaskId,
+        afterTaskId: start.afterTaskId,
+      };
+
       // The drag preview (`finalOrder`) stays rendered — instead of
       // `sortByRank` snapping the card back to its stale server position —
       // until the mutation settles and the cache actually matches it.
       moveTask.mutate(
-        { taskId: activeId, payload },
+        { taskId: activeId, payload, undoTo },
         { onSettled: reset }
       );
     },

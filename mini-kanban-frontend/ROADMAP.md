@@ -389,13 +389,44 @@ experience DESIGN §9 describes for a conflict.
 
 The whole of PLAN §6, in `useMoveTask`:
 
-- [ ] `onMutate`: **`cancelQueries(['board', id])` first**, snapshot the cache, then apply the move — skipping the cancel is exactly what causes "card jumps back even though the move succeeded"
-- [ ] Send `PATCH /api/v1/tasks/:id/move` with `expectedVersion` from the cached task
-- [ ] `onError`: roll back to the snapshot + toast (`409` → "Someone else moved this task — board updated")
-- [ ] `onSuccess`: reconcile the authoritative `rank`/`version`
-- [ ] **Every cache write is a keyed upsert by `task.id`** — never a wholesale board replace (prevents duplicate *and* disappearing cards)
-- [ ] **Per-task sequence number**: drop a response whose sequence is older than the last applied one (rapid re-drags)
-- [ ] **Undo** in the success toast (~5 s) — one symmetric call back to the previous neighbours
+- [x] `onMutate`: **`cancelQueries(['board', id])` first**, snapshot the cache, then apply the move — skipping the cancel is exactly what causes "card jumps back even though the move succeeded"
+- [x] Send `PATCH /api/v1/tasks/:id/move` with `expectedVersion` from the cached task
+- [x] `onError`: roll back to the snapshot + toast (`409` → "Someone else moved this task — board updated")
+- [x] `onSuccess`: reconcile the authoritative `rank`/`version`
+- [x] **Every cache write is a keyed upsert by `task.id`** — never a wholesale board replace (prevents duplicate *and* disappearing cards)
+- [x] **Per-task sequence number**: drop a response whose sequence is older than the last applied one (rapid re-drags)
+- [x] **Undo** in the success toast (~5 s) — one symmetric call back to the previous neighbours
+
+Implementation notes:
+
+- The optimistic patch (`moveTaskOptimistic`, `src/lib/tasks.ts`) needed a plausible `rank` to
+  write into the cache, not just a `columnId` change — added `between`/`first`/`last` to
+  `src/lib/rank.ts`, a direct port of the *read* half of the backend's
+  `mini-kanban-backend/src/tasks/rank.util.ts` (no `rebalance()` — that stays a server-only, write-time
+  concern). This estimate is never trusted past the round trip: `onSuccess` always overwrites it with
+  the server's real `rank`, and a bad estimate (e.g. colliding neighbour ranks) falls back to the
+  task's own current rank rather than throwing.
+- The sequence-number guard (`sequenceRef`, one counter per task id) covers both `onError`'s
+  rollback and `onSuccess`'s reconcile — either one is dropped if a newer call for the same task
+  has since started, so a rapid re-drag's earlier response can never stomp the later one.
+- Undo re-enters the same mutation via a `mutationRef` (a `useMutation` config can't reference the
+  object it returns), sending the pre-move neighbour ids/column back with the just-reconciled
+  `version` as `expectedVersion` — the literal "one symmetric call" PLAN §6 describes, so it gets
+  the same optimistic/rollback treatment as any other move.
+- `useBoardDnd`'s drag preview (`dragOrder`) still owns the *instant* visual feedback and is
+  unchanged; this phase's cache write matters for anything reading the board query directly
+  (column counts, a fresh mount) rather than through that preview.
+
+**Verified in a real browser** (Playwright + Chromium, against the live backend, seeding a
+board/columns/tasks directly via the API): a same-column drag shows the "Card moved" toast and
+lands the card in the new position; clicking **Undo** restores its original position. A
+cross-column drag lands the card in the destination column's tray; **Undo** returns it to the
+source column. A forced conflict — a second API call bumps a task's `version` "from another
+client" between page-load and the drag — makes the browser's drag `409`; the error toast
+("Someone else moved this task — board updated") appears, and the board reconciles to the
+server's authoritative state, confirmed by the server's `version` having advanced by exactly one
+(the other client's move only — the browser's own rejected attempt never landed a second bump).
+`npx tsc --noEmit`, `npm run lint`, and `npm run build` all clean.
 
 ---
 
