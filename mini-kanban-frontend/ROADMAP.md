@@ -659,12 +659,28 @@ CMD ["node","server.js"]
 ```
 
 - [x] `output: 'standalone'` is set (Phase 2) — `.next/standalone/server.js` confirmed present
-- [ ] **`ARG BACKEND_URL` before `npm run build`** (`ARG BACKEND_URL` + `ENV BACKEND_URL=$BACKEND_URL`).
-      The Dockerfile snippet above does **not** do this yet and must be amended: the rewrite target
-      is frozen into `routes-manifest.json` at build time (proved in Phase 2), so an image built
-      without it bakes `http://localhost:4000` and every API call inside the container 502s, no
-      matter what compose sets at run time. Compose must pass it via `build: args:`, not `env_file:`.
-- [ ] `.dockerignore`: `node_modules`, `.next`, `.env*`, `.git`
+- [x] **`ARG BACKEND_URL` before `npm run build`** — `Dockerfile` now has `ARG BACKEND_URL` +
+      `ENV BACKEND_URL=$BACKEND_URL` in the `build` stage, ahead of `RUN npm run build`, matching
+      Phase 2's finding that the rewrite target freezes into `routes-manifest.json` at build time.
+      Root `docker-compose.yml` (Phase 3) must pass it via `build: args:`, never `env_file:`.
+- [x] `.dockerignore` — `node_modules`, `.next`, `.env`/`.env.*` (with `.env.example` re-allowed),
+      `.git`, `.gitignore`, `*.log`, plus `design/` (the DESIGN.md reference mockup — dev-only,
+      no reason to ship it in the image).
+
+One deviation from the snippet above, found while verifying: this project has **no `public/`
+directory** (DESIGN §8's every icon/illustration is inline SVG, so nothing was ever added there),
+and `COPY --from=build /app/public ./public` against a path that doesn't exist fails the build
+outright. Dropped that line rather than fabricating an empty folder just for Docker's sake — the
+comment left in its place says why, so a later phase that *does* add `public/` assets knows to put
+the line back.
+
+**Verified live**: `docker build --build-arg BACKEND_URL=http://backend:4000` builds clean
+end-to-end (`npm ci` → `next build` → the three-stage copy). Inside the built image,
+`.next/routes-manifest.json`'s rewrite destination is `http://backend:4000/api/v1/:path*` — the
+build ARG actually reached the manifest, not the `http://localhost:4000` fallback. Running the
+image (`docker run -p 3099:3000 …`, no backend attached) serves real Next.js responses: `/` → `307`
+(the auth middleware redirect) and `/login` → `200`, proving `server.js` boots and routes without
+throwing. Image and container cleaned up after verification.
 
 ---
 
