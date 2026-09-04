@@ -115,11 +115,11 @@ npx prisma studio          # eyeball the tables
 
 `src/common/guards/`, `src/common/decorators/`
 
-- [ ] `BoardAccessGuard` — resolves `boardId` from `:boardId`, or via lookup from `:columnId` / `:taskId`; loads the caller's `BoardMember`; `403` if absent; attaches `req.boardRole` (PLAN §4)
-- [ ] `RolesGuard` + `@RequireRole(BoardRole.EDITOR)`
-- [ ] Guard order matters: `JwtAuthGuard` → `BoardAccessGuard` → `RolesGuard`
+- [x] `BoardAccessGuard` — resolves `boardId` from `:boardId`, or via lookup from `:columnId` / `:taskId`; loads the caller's `BoardMember`; `403` if absent; attaches `req.boardRole` (PLAN §4)
+- [x] `RolesGuard` + `@RequireRole(BoardRole.EDITOR)`
+- [x] Guard order matters: `JwtAuthGuard` → `BoardAccessGuard` → `RolesGuard`
 
-**Done when:** a task id belonging to someone else's board returns `403` on *every* task route, with no service code reached.
+**Done when:** a task id belonging to someone else's board returns `403` on *every* task route, with no service code reached. ✅ Verified now via unit tests (`board-access.guard.spec.ts`, `roles.guard.spec.ts`, 14 tests) with a stubbed Prisma — including the exact scenario, a `:taskId` resolving to a board the caller has no `BoardMember` row on. There are no real task routes yet (Phases 6–8 build `BoardsController`/`ColumnsController`/`TasksController`); those phases apply `@UseGuards(BoardAccessGuard, RolesGuard)` and must name their id params `:boardId`/`:columnId`/`:taskId` per this guard's contract (documented in its docblock) for the lookup to work — full route-level verification (`authz.e2e-spec.ts`) happens in Phase 11 once those routes exist.
 
 ---
 

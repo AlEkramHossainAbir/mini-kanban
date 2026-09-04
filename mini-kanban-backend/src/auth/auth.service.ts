@@ -195,7 +195,11 @@ export class AuthService {
     );
 
     await this.prisma.refreshToken.create({
-      data: { tokenHash: this.hashRefreshToken(refreshToken), userId, expiresAt },
+      data: {
+        tokenHash: this.hashRefreshToken(refreshToken),
+        userId,
+        expiresAt,
+      },
     });
 
     this.setAuthCookies(res, accessToken, refreshToken);
