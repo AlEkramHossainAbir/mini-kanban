@@ -145,13 +145,41 @@ The graded deliverable. Structure:
 
 Order matters; each step needs the previous one's URL:
 
-1. [ ] **Managed Postgres** (Railway/Render/Neon) → copy `DATABASE_URL`
-2. [ ] **Backend** (Railway/Render) → set all env vars with **freshly generated** secrets, `NODE_ENV=production`; verify `/api/v1/health`
-3. [ ] **Frontend** (Vercel) → root dir `mini-kanban-frontend`, `BACKEND_URL` = the API origin, `NEXT_PUBLIC_WS_URL` = the same
-4. [ ] **Back to the backend** → set `FRONTEND_URL` to the Vercel domain, redeploy
-5. [ ] Seed one demo account + a populated board so the reviewer sees a real board, not an empty state
+1. [x] **Managed Postgres** (Railway/Render/Neon) → copy `DATABASE_URL` — Railway Postgres,
+       provisioned via `railway add --database postgres`; `DATABASE_URL` wired into the backend
+       service as a Railway variable reference (`${{Postgres.DATABASE_URL}}`), never copy-pasted
+       as a literal
+2. [x] **Backend** (Railway/Render) → set all env vars with **freshly generated** secrets, `NODE_ENV=production`; verify `/api/v1/health` — deployed to Railway from `mini-kanban-backend/`
+       (`railway up --path-as-root --service backend`, using the committed Dockerfile, Phase 12's
+       three-stage build). `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` generated fresh via `openssl
+       rand -base64 32` (two different values), `NODE_ENV=production`, `ACCESS_TOKEN_TTL=15m`,
+       `REFRESH_TOKEN_TTL=7d`. Live at `https://backend-production-2621.up.railway.app`; `GET
+       /api/v1/health` → `200 {"status":"ok"}` with the full helmet header set, confirmed via
+       `curl` against the public domain. Logs confirm `prisma migrate deploy` applied the one
+       committed migration against a genuinely fresh database and Nest mapped all 22 routes with
+       zero startup errors.
+3. [x] **Frontend** (Vercel) → root dir `mini-kanban-frontend`, `BACKEND_URL` = the API origin, `NEXT_PUBLIC_WS_URL` = the same — deployed via `vercel link` + `vercel deploy --prod` from
+       `mini-kanban-frontend/`, both vars set as Vercel Production environment variables pointing
+       at the Railway backend origin above (confirmed baked into `routes-manifest.json` at build
+       time, per frontend ROADMAP Phase 2/12's finding). Live at
+       `https://mini-kanban-frontend-seven.vercel.app`.
+4. [x] **Back to the backend** → set `FRONTEND_URL` to the Vercel domain, redeploy — `railway
+       variable set FRONTEND_URL=https://mini-kanban-frontend-seven.vercel.app --service backend`
+       triggered an automatic redeploy; logs confirm the app restarted clean with all routes
+       remapped.
+5. [x] Seed one demo account + a populated board so the reviewer sees a real board, not an empty
+       state — `demo@example.com` / `DemoPass123!`, seeded live through the deployed frontend's
+       own proxy (not a direct-to-backend call) via `curl` with a cookie jar: one board ("Product
+       Launch"), 4 columns (Backlog/In Progress/Blocked/Done), 8 tasks distributed across them.
+       The two auto-seeded default columns (`BoardsService`'s `DEFAULT_COLUMN_TITLES`, empty)
+       were deleted afterward so the board reads cleanly rather than showing two "Done" columns.
 
-- [ ] **The check that only production can reveal:** log in on the deployed URL, hard-refresh, confirm the session survives. If it doesn't, the same-origin proxy (PLAN §1) isn't working and cookies are being dropped cross-site.
+- [x] **The check that only production can reveal:** log in on the deployed URL, hard-refresh, confirm the session survives. If it doesn't, the same-origin proxy (PLAN §1) isn't working and cookies are being dropped cross-site. — Verified via `curl` with a cookie jar against the live
+      Vercel URL: `POST /api/v1/auth/login` through the frontend's proxy set `mk_at`/`mk_rt` as
+      `HttpOnly; Secure; SameSite=Lax`, scoped to the Vercel origin; a **separate** subsequent
+      `GET /api/v1/auth/me` request (simulating a hard refresh — a fresh request presenting only
+      the stored cookies, no session state carried over) returned `200` with the correct user,
+      proving the session survives across the split Vercel↔Railway deployment.
 
 ---
 
@@ -162,7 +190,11 @@ Straight from the brief's *Submission & Deliverables*:
 - [x] **Single repository** containing both `mini-kanban-backend/` and `mini-kanban-frontend/` directories — verified by a fresh `git clone` (Phase 0), re-verified 2026-09-04 via the `docker-bringup` skill: a genuine `git clone` into a scratch directory shows real files in both, not empty submodule folders
 - [x] **`README.md`** with step-by-step local setup **and sample environment variables** (Phase 4) — read in full 2026-09-04; quick start, no-Docker path, full env var block, API table, architecture summary and out-of-scope section are all present (the "stale, submodule-era README" note elsewhere in this repo's memory predates the actual rewrite — confirmed against the file itself, not the note)
 - [x] **`docker-compose.yml`** bringing up database + services with minimal setup (Phase 3) — re-verified 2026-09-04 end to end: fresh clone → `cp .env.example .env` → `docker compose up --build` (host ports remapped in the scratch copy only, since this machine's own dev servers hold 3000/4000/5432 — internal service-name networking, the thing actually under test, was untouched) → `db` healthy before `backend` started (6s gap, not a race) → `prisma migrate deploy` ran from the backend's own `CMD` against a genuinely empty database → `GET /api/v1/health` → `200`, `GET /login` → `200`, zero restarts, zero errors in `docker compose logs`. Torn down and images removed after.
-- [ ] **Deployment link** (optional) with working demo credentials (Phase 5) — deliberately not done: no Railway/Render/Neon/Vercel account is authenticated in this environment, and provisioning one is the user's call, not something to do unattended. See Phase 5.
+- [x] **Deployment link** (optional) with working demo credentials (Phase 5) — live at
+      `https://mini-kanban-frontend-seven.vercel.app` (backend:
+      `https://backend-production-2621.up.railway.app`), demo login `demo@example.com` /
+      `DemoPass123!`, seeded with one populated board. See Phase 5 and the root README's "Live
+      demo" section.
 
 And against the *Core Requirements*, all re-verified live 2026-09-04 (via the `qa-checklist` skill, against the local dev stack, two real registered accounts, evidence inspected via the API response — not by UI appearance alone):
 

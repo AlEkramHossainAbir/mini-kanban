@@ -392,10 +392,25 @@ Generate real ones with `openssl rand -base64 32`.
 
 **Railway or Render**, managed Postgres attached:
 
-- [ ] Provision Postgres first; copy its connection string into `DATABASE_URL`
-- [ ] Build: `npm ci && npx prisma generate && npm run build` · Start: `npx prisma migrate deploy && node dist/main.js`
-- [ ] Set every var from Phase 13 — with **fresh** secrets, `NODE_ENV=production`, and `FRONTEND_URL` = the deployed frontend origin
-- [ ] Health check path → `/api/v1/health`
-- [ ] Confirm `secure: true` cookies are actually being set (the platform terminates TLS, so `trust proxy` must be on)
+- [x] Provision Postgres first; copy its connection string into `DATABASE_URL` — Railway Postgres
+      via `railway add --database postgres`; the backend service's `DATABASE_URL` is a Railway
+      variable reference (`${{Postgres.DATABASE_URL}}`), resolved at deploy time rather than
+      copy-pasted as a literal connection string
+- [x] Build: `npm ci && npx prisma generate && npm run build` · Start: `npx prisma migrate deploy && node dist/main.js` — via the committed Dockerfile (Phase 12), built and deployed with
+      `railway up mini-kanban-backend --path-as-root --service backend`. Logs confirm
+      `20260903162421_init` applied cleanly against a fresh database and Nest booted with all 22
+      routes mapped
+- [x] Set every var from Phase 13 — with **fresh** secrets, `NODE_ENV=production`, and `FRONTEND_URL` = the deployed frontend origin — `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` each generated via
+      `openssl rand -base64 32` (distinct values, >32 chars, satisfying `env.validation.ts`'s
+      production checks), `NODE_ENV=production`, `ACCESS_TOKEN_TTL=15m`, `REFRESH_TOKEN_TTL=7d`,
+      `FRONTEND_URL` set to the deployed Vercel origin once known (root ROADMAP Phase 5 step 4),
+      which triggered a clean automatic redeploy
+- [x] Health check path → `/api/v1/health` — `curl https://backend-production-2621.up.railway.app/api/v1/health` → `200 {"status":"ok"}` with the full helmet header set
+- [x] Confirm `secure: true` cookies are actually being set (the platform terminates TLS, so `trust proxy` must be on) — verified live: `POST /auth/login` through the deployed frontend's proxy
+      returned `set-cookie` headers for both `mk_at`/`mk_rt` carrying `Secure; HttpOnly;
+      SameSite=Lax`
 
-**Done when:** the deployed frontend can register, log in, and keep the session across a hard refresh — the check that catches cookie misconfiguration (PLAN §10).
+**Done when:** the deployed frontend can register, log in, and keep the session across a hard refresh — the check that catches cookie misconfiguration (PLAN §10). ✅ Verified live via `curl`
+with a cookie jar against the deployed Vercel URL: register → `201`, login → `200` setting both
+cookies, then a **separate** subsequent `GET /auth/me` request (a fresh request presenting only
+the stored cookies, standing in for a hard refresh) → `200` with the correct user.

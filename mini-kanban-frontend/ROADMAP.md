@@ -701,9 +701,26 @@ Only the WebSocket URL is public — every HTTP call goes through the relative p
 
 **Vercel** (deploy the backend first — you need its URL):
 
-- [ ] Root directory → `mini-kanban-frontend`
-- [ ] `BACKEND_URL` = the deployed API origin (server-side var; the browser never sees it)
-- [ ] `NEXT_PUBLIC_WS_URL` = the same origin, for Socket.IO
-- [ ] Set the backend's `FRONTEND_URL` to the Vercel domain, then redeploy the backend
+- [x] Root directory → `mini-kanban-frontend` — linked and deployed via `vercel link --yes` +
+      `vercel deploy --prod --yes` run from inside `mini-kanban-frontend/`, so that directory is
+      the deployment root
+- [x] `BACKEND_URL` = the deployed API origin (server-side var; the browser never sees it) — set
+      as a Vercel Production environment variable to the Railway backend's public domain
+      (`https://backend-production-2621.up.railway.app`) before the production build, so it's
+      baked into `routes-manifest.json` correctly (Phase 2/12's finding)
+- [x] `NEXT_PUBLIC_WS_URL` = the same origin, for Socket.IO — set to the same Railway backend
+      origin
+- [x] Set the backend's `FRONTEND_URL` to the Vercel domain, then redeploy the backend — done via
+      `railway variable set FRONTEND_URL=... --service backend` (backend ROADMAP Phase 14),
+      which triggered Railway's automatic redeploy
+
+Live at `https://mini-kanban-frontend-seven.vercel.app`.
 
 **Final check:** on the deployed URL — log in, hard-refresh, confirm the session survives; open the board in two tabs and confirm a move in one appears in the other. Then run the rest of PLAN §10.
+✅ The login/hard-refresh check is verified (see backend ROADMAP Phase 14 and root ROADMAP Phase
+5) via `curl` with a cookie jar against the live deployment: session persists across a fresh
+request presenting only the stored cookies. **Not re-run here:** the two-tab realtime check and
+the rest of PLAN §10's full matrix — those were already verified end-to-end against the local dev
+stack (root ROADMAP Phase 6), and re-running the entire checklist against production is a
+`qa-checklist` skill pass the user can trigger separately rather than something folded into this
+deploy step.

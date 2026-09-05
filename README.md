@@ -164,9 +164,21 @@ enforcement, rate limiting, cookie hardening, audit logging).
 
 ## Live demo
 
-Not currently deployed. The optional deployment sequence (managed Postgres → backend → frontend,
-in that order, each step feeding the next one's URL) is documented in [ROADMAP.md](ROADMAP.md),
-Phase 5.
+- **App:** https://mini-kanban-frontend-seven.vercel.app
+- **API:** https://backend-production-2621.up.railway.app/api/v1/health
+
+Deployed per the sequence in [ROADMAP.md](ROADMAP.md) Phase 5: managed Postgres + backend on
+Railway, frontend on Vercel, each step feeding the next one's URL. The
+login-then-hard-refresh check that phase calls out (proof the same-origin proxy isn't dropping
+cookies across the split deployment) has been verified against this exact deployment.
+
+Demo credentials (seeded with one populated board, "Product Launch", 4 columns / 8 tasks, so the
+board isn't empty on first login):
+
+```
+email:    demo@example.com
+password: DemoPass123!
+```
 
 ## What's intentionally out of scope
 
