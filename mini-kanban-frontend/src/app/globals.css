@@ -93,3 +93,17 @@ body{
 .conflict-flash{
   animation:conflict-flash 760ms var(--ease);
 }
+
+/* The `ShareModal` role menu's entrance — a portaled dropdown, not one of
+   DESIGN §4/§5's named components, so this derives from the same tokens
+   per §1: transform + opacity only (rule 1), `var(--ease)`, collapsed under
+   `prefers-reduced-motion` by the blanket `animation-duration` override
+   above (no separate carve-out needed, unlike the one-shot conflict flash). */
+@keyframes menu-in{
+  from{ opacity:0; transform:translateY(-4px) scale(.97); }
+  to{ opacity:1; transform:translateY(0) scale(1); }
+}
+.animate-menu-in{
+  animation:menu-in 150ms var(--ease);
+  transform-origin:top right;
+}
