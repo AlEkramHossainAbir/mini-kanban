@@ -40,6 +40,11 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
 COPY --chown=node:node prisma.config.ts ./
 COPY --chown=node:node package*.json ./
+# No compiled output of its own — ts-node reads this directly. Only needed so
+# `docker compose exec backend npm run db:seed` (prisma/seed.ts, plain
+# ts-node, no path aliases) has compiler options to run against; not read by
+# `node dist/main.js` itself.
+COPY --chown=node:node tsconfig.json ./
 # The image ships no .env — every variable in ROADMAP Phase 13 arrives from
 # the environment (docker compose's env_file, or the host's dashboard).
 USER node

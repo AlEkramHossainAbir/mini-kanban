@@ -36,6 +36,15 @@ The backend container waits for Postgres's healthcheck before starting, then run
 `prisma migrate deploy` automatically as part of its own `CMD` — the database schema is created
 for you, no manual migration step required.
 
+Migrations create the schema but not any data — to log in with the demo credentials below against
+this local database, seed it once:
+
+```bash
+docker compose exec backend npm run db:seed
+```
+
+Safe to re-run; it upserts the demo user and only seeds its board the first time.
+
 ## Local development without Docker
 
 Each app runs with its own `npm install` + dev server, against a standalone Postgres container:
@@ -51,6 +60,7 @@ cd mini-kanban-backend
 cp .env.example .env   # DATABASE_URL already points at the container above
 npm install
 npx prisma migrate deploy
+npm run db:seed        # creates the demo login below (safe to re-run)
 npm run start:dev
 
 # 3. Frontend — http://localhost:3000
@@ -173,7 +183,9 @@ login-then-hard-refresh check that phase calls out (proof the same-origin proxy 
 cookies across the split deployment) has been verified against this exact deployment.
 
 Demo credentials (seeded with one populated board, "Product Launch", 4 columns / 8 tasks, so the
-board isn't empty on first login):
+board isn't empty on first login). The same credentials also work against a local
+[Quick start](#quick-start-docker) instance — run `npm run db:seed` there (see above) to create
+them locally:
 
 ```
 email:    demo@example.com

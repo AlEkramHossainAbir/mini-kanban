@@ -173,6 +173,19 @@ Order matters; each step needs the previous one's URL:
        Launch"), 4 columns (Backlog/In Progress/Blocked/Done), 8 tasks distributed across them.
        The two auto-seeded default columns (`BoardsService`'s `DEFAULT_COLUMN_TITLES`, empty)
        were deleted afterward so the board reads cleanly rather than showing two "Done" columns.
+       That curl-against-the-live-deployment approach was one-off and left nothing behind for a
+       fresh local database — reported live 2026-09-05 as "demo credentials don't work locally".
+       Fixed with `mini-kanban-backend/prisma/seed.ts` (idempotent upsert, `npm run db:seed`,
+       README-documented in both the Docker and no-Docker quick starts) so the same
+       `demo@example.com` / `DemoPass123!` login works against any database, local or deployed.
+       That file's presence also silently broke `nest build`'s output layout — TypeScript's
+       inferred `rootDir` widened from `src` to the project root once a second `.ts` file existed
+       outside `src/`, so `dist/main.js` moved to `dist/src/main.js` and the container's
+       `node dist/main.js` `CMD` stopped booting. Fixed by excluding `prisma/` in
+       `tsconfig.build.json`, alongside the existing `prisma.config.ts` exclude. Re-verified after
+       the fix: `docker compose build backend` → boots clean, `db:seed` run inside the container,
+       full login → `/auth/me` → `/boards` chain checked through the frontend's own proxy exactly
+       as this phase's own check requires.
 
 - [x] **The check that only production can reveal:** log in on the deployed URL, hard-refresh, confirm the session survives. If it doesn't, the same-origin proxy (PLAN §1) isn't working and cookies are being dropped cross-site. — Verified via `curl` with a cookie jar against the live
       Vercel URL: `POST /api/v1/auth/login` through the frontend's proxy set `mk_at`/`mk_rt` as
