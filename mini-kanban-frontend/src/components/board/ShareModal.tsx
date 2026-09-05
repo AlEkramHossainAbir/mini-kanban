@@ -36,6 +36,12 @@ const ASSIGNABLE_ROLES: { value: AssignableRole; label: string }[] = [
   { value: "EDITOR", label: "Editor" },
   { value: "VIEWER", label: "Viewer" },
 ];
+/** "an editor" / "a viewer" — the only two nouns this ever has to article,
+ *  so a lookup beats a vowel-sniffing heuristic. */
+const ROLE_ARTICLE: Record<AssignableRole, string> = {
+  EDITOR: "an editor",
+  VIEWER: "a viewer",
+};
 
 /** Where to float the menu, computed from the trigger's own screen position
  *  rather than CSS anchoring — the member list scrolls inside the modal
@@ -336,10 +342,21 @@ export function ShareModal({
     });
   });
 
-  const changeRole = (userId: string, role: AssignableRole) => {
+  const changeRole = (member: BoardMember, role: AssignableRole) => {
     updateRole.mutate(
-      { userId, role },
+      { userId: member.userId, role },
       {
+        // The role menu closes itself the instant an option is clicked
+        // (optimistic-feeling, but not actually optimistic — see
+        // `useUpdateMemberRole`), which left no confirmation that anything
+        // happened: a click, a closed menu, and otherwise silence. Without
+        // this, "did that work?" was a real question — enough that testing
+        // this surfaced people re-clicking Add out of doubt, thinking a role
+        // change needed a separate save step the same way the invite form
+        // does.
+        onSuccess: () => {
+          toast.success(`${member.user.name} is now ${ROLE_ARTICLE[role]}`);
+        },
         onError: (error) => {
           toast.error(
             error instanceof ApiError ? error.message : "Could not change that member's role."
@@ -387,7 +404,7 @@ export function ShareModal({
               roleChangePending={
                 updateRole.isPending && updateRole.variables?.userId === m.userId
               }
-              onRoleChange={(role) => changeRole(m.userId, role)}
+              onRoleChange={(role) => changeRole(m, role)}
               onRemove={() => setRemoving(m)}
             />
           ))}
