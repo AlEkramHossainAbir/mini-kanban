@@ -26,6 +26,7 @@ import { BoardsService } from './boards.service';
 import { AddMemberDto } from './dto/add-member.dto';
 import { CreateBoardDto } from './dto/create-board.dto';
 import { ListBoardsQueryDto } from './dto/list-boards-query.dto';
+import { SearchMembersQueryDto } from './dto/search-members-query.dto';
 import { UpdateBoardDto } from './dto/update-board.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 
@@ -87,6 +88,18 @@ export class BoardsController {
   @Get(':boardId/members')
   listMembers(@Param('boardId') boardId: string) {
     return this.boardsService.listMembers(boardId);
+  }
+
+  // `candidates` is a fixed path segment, not `:userId` — GET has no
+  // `:userId` route to collide with anyway (only PATCH/DELETE do, below).
+  @UseGuards(BoardAccessGuard, RolesGuard)
+  @RequireRole(BoardRole.OWNER)
+  @Get(':boardId/members/candidates')
+  searchInviteCandidates(
+    @Param('boardId') boardId: string,
+    @Query() query: SearchMembersQueryDto,
+  ) {
+    return this.boardsService.searchInviteCandidates(boardId, query);
   }
 
   @UseGuards(BoardAccessGuard, RolesGuard)

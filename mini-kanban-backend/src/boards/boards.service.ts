@@ -12,6 +12,7 @@ import { decodeCursor, encodeCursor } from './cursor.util';
 import { AddMemberDto } from './dto/add-member.dto';
 import { CreateBoardDto } from './dto/create-board.dto';
 import { ListBoardsQueryDto } from './dto/list-boards-query.dto';
+import { SearchMembersQueryDto } from './dto/search-members-query.dto';
 import { UpdateBoardDto } from './dto/update-board.dto';
 
 const MEMBER_SELECT = {
@@ -34,6 +35,11 @@ type MemberView = Prisma.BoardMemberGetPayload<{
  * colour and its cards' struck-through treatment from that literal title.
  */
 const DEFAULT_COLUMN_TITLES = ['To Do', 'Done'] as const;
+
+// Small and fixed on purpose: this backs a live-typing autocomplete, not a
+// paginated directory — enough rows to be useful, few enough to never need
+// a "load more".
+const INVITE_CANDIDATE_LIMIT = 8;
 
 @Injectable()
 export class BoardsService {
@@ -186,6 +192,37 @@ export class BoardsService {
       where: { boardId },
       orderBy: { createdAt: 'asc' },
       select: MEMBER_SELECT,
+    });
+  }
+
+  /**
+   * Backs the invite field's autocomplete (`GET :boardId/members/candidates`,
+   * OWNER-only — same gate as `addMember` itself, since this exists only to
+   * feed that form). Registered users matching `q` against email or name,
+   * excluding anyone already on the board — an invite-by-email flow can only
+   * ever act on a non-member, so a member showing up in its own suggestion
+   * list would just be a confusing dead end, not a real choice.
+   *
+   * Matches email/name are returned, `passwordHash` never selected — same
+   * shape discipline as `PublicUser` elsewhere.
+   */
+  searchInviteCandidates(boardId: string, query: SearchMembersQueryDto) {
+    const q = query.q?.trim();
+    return this.prisma.user.findMany({
+      where: {
+        boardMembers: { none: { boardId } },
+        ...(q
+          ? {
+              OR: [
+                { email: { contains: q, mode: 'insensitive' } },
+                { name: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { email: 'asc' },
+      take: INVITE_CANDIDATE_LIMIT,
+      select: { id: true, email: true, name: true },
     });
   }
 
