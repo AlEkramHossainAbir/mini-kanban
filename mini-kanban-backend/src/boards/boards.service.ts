@@ -7,6 +7,7 @@ import { BoardRole, Prisma } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../audit/audit.actions';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { BOARD_EVENTS, BoardGateway } from '../gateway/board.gateway';
 import { between, first, last } from '../tasks/rank.util';
 import { decodeCursor, encodeCursor } from './cursor.util';
 import { AddMemberDto } from './dto/add-member.dto';
@@ -46,6 +47,7 @@ export class BoardsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly gateway: BoardGateway,
   ) {}
 
   async create(ownerId: string, dto: CreateBoardDto) {
@@ -290,6 +292,16 @@ export class BoardsService {
       entityId: userId,
       metadata: { from: previous?.role ?? null, to: role },
     });
+    // Broadcast after the write commits, same rule task/column events
+    // follow — an event describing a change that later rolled back would be
+    // worse than no event. Every connected client in the room gets this,
+    // not just the affected user's socket: the frontend decides what to do
+    // with it (the demoted user's own board view drops its edit affordances;
+    // everyone else's member list just re-syncs the row).
+    this.gateway.emit(boardId, BOARD_EVENTS.memberRoleChanged, {
+      userId,
+      role,
+    });
     return member;
   }
 
@@ -318,6 +330,11 @@ export class BoardsService {
       entityId: userId,
       metadata: { revokedRole: previous?.role ?? null },
     });
+    // The removed user's own socket is still in `board:<boardId>` at this
+    // point — nothing here kicks it out of the Socket.IO room, only tells
+    // its board view to treat itself as no-longer-a-member (PLAN §4's guard
+    // chain is what actually stops it acting on the board in the meantime).
+    this.gateway.emit(boardId, BOARD_EVENTS.memberRemoved, { userId });
   }
 
   /**

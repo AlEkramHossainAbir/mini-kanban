@@ -3,13 +3,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { toast } from "sonner";
 import { get } from "./api";
 import { boardKey } from "./board";
 import { patchColumnFields, removeColumnFromBoard, upsertOrInsertColumn } from "./columns";
 import type { MoveColumnResult } from "./columns";
+import { membersKey, patchMemberRole, removeMemberFromList } from "./members";
 import { removeTaskFromBoard, upsertOrInsertTask, upsertTaskInBoard } from "./tasks";
 import type { MoveTaskResult } from "./tasks";
-import type { Board, Column, Task } from "./types";
+import type { Board, BoardMember, BoardRole, Column, Task, User } from "./types";
 
 /** Same-origin for HTTP (the ws-ticket fetch goes through the Phase 2
  *  rewrite), but Socket.IO connects **directly** to the backend — a WS
@@ -33,6 +35,21 @@ interface ColumnDeletedPayload {
   id: string;
   boardId: string;
 }
+
+interface MemberRoleChangedPayload {
+  userId: string;
+  role: BoardRole;
+}
+
+interface MemberRemovedPayload {
+  userId: string;
+}
+
+const ROLE_NOUN: Record<BoardRole, string> = {
+  OWNER: "an owner",
+  EDITOR: "an editor",
+  VIEWER: "a viewer",
+};
 
 export type RealtimeStatus = "connecting" | "live" | "reconnecting" | "offline";
 
@@ -142,6 +159,39 @@ export function useBoardRealtime(boardId: string): RealtimeStatus {
     socket.on("column.deleted", (p: ColumnDeletedPayload) =>
       patchBoard((b) => removeColumnFromBoard(b, p.id))
     );
+
+    // Access control, not board content — but the same "reconcile the
+    // cache, don't wait for the next click to find out" rule applies. Every
+    // connected client gets these two, not just the affected user's socket:
+    // everyone's member list re-syncs the row; only the affected user also
+    // gets their own `Board.role` patched (the field `canEdit`/`isOwner`
+    // derive from) and a toast, since it's their own permissions that just
+    // changed under them.
+    socket.on("member.roleChanged", (p: MemberRoleChangedPayload) => {
+      qc.setQueryData<BoardMember[]>(membersKey(boardId), (old) =>
+        old ? patchMemberRole(old, p.userId, p.role) : old
+      );
+      const me = qc.getQueryData<User>(["me"]);
+      if (me?.id === p.userId) {
+        patchBoard((b) => ({ ...b, role: p.role }));
+        toast.info(`Your access to this board changed — you're now ${ROLE_NOUN[p.role]}`);
+      }
+    });
+    socket.on("member.removed", (p: MemberRemovedPayload) => {
+      qc.setQueryData<BoardMember[]>(membersKey(boardId), (old) =>
+        old ? removeMemberFromList(old, p.userId) : old
+      );
+      const me = qc.getQueryData<User>(["me"]);
+      if (me?.id === p.userId) {
+        toast.error("You no longer have access to this board");
+        // Refetching (rather than patching `role` to null and letting the
+        // page render a read-only board it can't actually reach) reuses the
+        // page's existing 403 error state — "This board isn't available…
+        // your access was removed" — instead of a second, parallel copy of
+        // that same message.
+        qc.invalidateQueries({ queryKey: boardKey(boardId) });
+      }
+    });
 
     socket.connect();
 

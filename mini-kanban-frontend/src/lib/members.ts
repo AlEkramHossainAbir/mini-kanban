@@ -94,3 +94,22 @@ export function useRemoveMember(boardId: string) {
     },
   });
 }
+
+/** Used solely by the WebSocket reconciler (`useBoardRealtime`) for
+ *  `member.roleChanged` — every connected client's `members` cache gets
+ *  this, not just the actor's, so a live board's member list and the
+ *  affected user's own role-derived UI (`Board.role`, patched separately)
+ *  both stay correct without a refetch. Same "only touches a row the cache
+ *  already has" shape as `patchColumnFields`. */
+export function patchMemberRole(
+  members: BoardMember[],
+  userId: string,
+  role: BoardRole
+): BoardMember[] {
+  return members.map((m) => (m.userId === userId ? { ...m, role } : m));
+}
+
+/** Companion to `patchMemberRole` for `member.removed`. */
+export function removeMemberFromList(members: BoardMember[], userId: string): BoardMember[] {
+  return members.filter((m) => m.userId !== userId);
+}

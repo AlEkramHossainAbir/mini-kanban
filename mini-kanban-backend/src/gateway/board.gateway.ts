@@ -21,6 +21,15 @@ export const BOARD_EVENTS = {
   columnUpdated: 'column.updated',
   columnMoved: 'column.moved',
   columnDeleted: 'column.deleted',
+  // A role change/removal is access control, not board content — but it's
+  // exactly the kind of thing PLAN §1 already flags as changing "more often
+  // than a 15-minute token should reflect": the REST guards were always the
+  // real gate (a demoted VIEWER's next mutating call 403s regardless of
+  // what's on screen), these two exist purely so the affected member's own
+  // UI stops *offering* affordances the server would already refuse, rather
+  // than only finding out on the next click.
+  memberRoleChanged: 'member.roleChanged',
+  memberRemoved: 'member.removed',
 } as const;
 
 const room = (boardId: string) => `board:${boardId}`;
