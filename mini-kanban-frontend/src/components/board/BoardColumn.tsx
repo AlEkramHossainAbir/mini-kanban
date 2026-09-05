@@ -242,6 +242,15 @@ export function BoardColumn({
                 key={task.id}
                 task={task}
                 done={done}
+                // A VIEWER's cards must not be draggable. The server is the
+                // real gate and correctly 403s the move, but without this
+                // the card still lifted, animated to its new slot, and only
+                // then snapped back under a "Couldn't move that card"
+                // toast — every other control here already checks canEdit
+                // (the column's own useSortable, the composer, the edit and
+                // delete buttons), so this one was an oversight rather than
+                // a decision.
+                sortable={canEdit}
                 onOpen={canEdit ? () => onEditTask(task) : undefined}
               />
             ))

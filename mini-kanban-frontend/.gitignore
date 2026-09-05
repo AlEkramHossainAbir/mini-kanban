@@ -35,3 +35,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*
+# ...but the committed sample MUST survive the blanket .env* rule above. The
+# brief asks for sample environment variables, and README.md points readers at
+# this file; without this negation it was silently un-committable.
+!.env.example

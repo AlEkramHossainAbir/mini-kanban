@@ -1,7 +1,47 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { BoardGateway } from '../gateway/board.gateway';
 import { TaskVersionConflictException } from './task-version-conflict.exception';
 import { TasksService } from './tasks.service';
+
+interface RankedRow {
+  id: string;
+  rank: string;
+}
+/** The `data` payload of the conditional `updateMany` the move performs. */
+interface MoveUpdateData {
+  rank: string;
+  columnId: string;
+  version: { increment: number };
+}
+interface UpdateManyArgs {
+  data: MoveUpdateData;
+}
+interface UpdateArgs {
+  where: { id: string };
+  data: { rank: string };
+}
+
+/** Only the surface `TasksService.move` actually touches — a real shape
+ *  rather than `any`, so a typo in a stubbed method name fails at compile
+ *  time instead of as `undefined is not a function` mid-test. */
+interface PrismaStub {
+  column: { findUnique: jest.Mock };
+  task: {
+    findMany?: jest.Mock;
+    updateMany?: jest.Mock;
+    update?: jest.Mock;
+    findUniqueOrThrow: jest.Mock;
+  };
+  $transaction: jest.Mock;
+}
+
+/** The single cast, made once and named: a structural stub standing in for
+ *  the real client. `as unknown as` rather than `as any` keeps the assertion
+ *  explicit and local instead of disabling checking for the whole value. */
+const asPrisma = (stub: PrismaStub): PrismaService =>
+  stub as unknown as PrismaService;
 
 function serializationFailure(): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError('write conflict', {
@@ -21,14 +61,14 @@ function stubPrisma(options: {
   /** Throw this from $transaction on the given call index (0-based), if set. */
   throwOnTransactionCall?: { index: number; error: unknown };
 }) {
-  const updateManyCalls: any[] = [];
-  const singleUpdateCalls: { id: string; rank: string }[] = [];
+  const updateManyCalls: UpdateManyArgs[] = [];
+  const singleUpdateCalls: RankedRow[] = [];
   let transactionCallIndex = -1;
   let currentTaskRank = 'm';
   let currentTaskColumnId = 'col-original';
   let currentTaskVersion = 5;
 
-  const prisma: any = {
+  const prisma: PrismaStub = {
     column: {
       findUnique: jest
         .fn()
@@ -40,7 +80,7 @@ function stubPrisma(options: {
     },
     task: {
       findMany: jest.fn().mockResolvedValue(options.others),
-      updateMany: jest.fn(({ data }: any) => {
+      updateMany: jest.fn(({ data }: UpdateManyArgs) => {
         const callIndex = updateManyCalls.length;
         updateManyCalls.push({ data });
         const matchCount = options.updateManyMatchCounts?.[callIndex] ?? 1;
@@ -51,7 +91,7 @@ function stubPrisma(options: {
         }
         return Promise.resolve({ count: matchCount });
       }),
-      update: jest.fn(({ where, data }: any) => {
+      update: jest.fn(({ where, data }: UpdateArgs) => {
         singleUpdateCalls.push({ id: where.id, rank: data.rank });
         return Promise.resolve({ id: where.id, rank: data.rank });
       }),
@@ -65,8 +105,12 @@ function stubPrisma(options: {
         }),
       ),
     },
+    $transaction: jest.fn(),
   };
-  prisma.$transaction = jest.fn((fn: (tx: any) => unknown) => {
+  // Assigned after the literal so the callback can close over `prisma`
+  // itself — Prisma's interactive transaction hands the callback a client,
+  // and here that client is this same stub.
+  prisma.$transaction.mockImplementation((fn: (tx: PrismaStub) => unknown) => {
     transactionCallIndex++;
     if (options.throwOnTransactionCall?.index === transactionCallIndex) {
       return Promise.reject(options.throwOnTransactionCall.error);
@@ -80,7 +124,7 @@ function stubPrisma(options: {
 // The gateway is a broadcast side-channel: these tests assert persistence
 // behaviour, so a no-op stub keeps them focused. Gateway authorization has
 // its own spec.
-const noopGateway = { emit: jest.fn() } as any;
+const noopGateway = { emit: jest.fn() } as unknown as BoardGateway;
 
 describe('TasksService.move', () => {
   it('rejects a target column on a different board with 400 INVALID_TARGET_COLUMN', async () => {
@@ -88,7 +132,7 @@ describe('TasksService.move', () => {
       targetColumnBoardId: 'other-board',
       others: [],
     });
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -100,7 +144,7 @@ describe('TasksService.move', () => {
 
   it('rejects a nonexistent target column the same way', async () => {
     const { prisma } = stubPrisma({ targetColumnBoardId: null, others: [] });
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -116,7 +160,7 @@ describe('TasksService.move', () => {
       others: [{ id: 'sibling', rank: 'm' }],
       updateManyMatchCounts: [0], // conditional write matches nothing — someone else moved it first
     });
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -134,7 +178,7 @@ describe('TasksService.move', () => {
       others: [{ id: 'sibling', rank: 'm' }],
       updateManyMatchCounts: [1],
     });
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     const result = await service.move('board-1', 'moved-task', {
       targetColumnId: 'col-x',
@@ -157,7 +201,7 @@ describe('TasksService.move', () => {
       updateManyMatchCounts: [1],
       throwOnTransactionCall: { index: 0, error: serializationFailure() },
     });
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     const result = await service.move('board-1', 'moved-task', {
       targetColumnId: 'col-x',
@@ -169,7 +213,7 @@ describe('TasksService.move', () => {
   });
 
   it('gives up with VERSION_CONFLICT after the retry also fails to serialize', async () => {
-    const prisma: any = {
+    const prisma: PrismaStub = {
       column: {
         findUnique: jest.fn().mockResolvedValue({ boardId: 'board-1' }),
       },
@@ -182,12 +226,12 @@ describe('TasksService.move', () => {
           updatedAt: new Date(),
         }),
       },
+      $transaction: jest
+        .fn()
+        .mockRejectedValueOnce(serializationFailure())
+        .mockRejectedValueOnce(serializationFailure()),
     };
-    prisma.$transaction = jest
-      .fn()
-      .mockRejectedValueOnce(serializationFailure())
-      .mockRejectedValueOnce(serializationFailure());
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     await expect(
       service.move('board-1', 'moved-task', {
@@ -207,7 +251,7 @@ describe('TasksService.move', () => {
       others: [{ id: 'sibling', rank: longBoundary }],
       updateManyMatchCounts: [1],
     });
-    const service = new TasksService(prisma, noopGateway);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
 
     await service.move('board-1', 'moved-task', {
       targetColumnId: 'col-x',
@@ -220,5 +264,84 @@ describe('TasksService.move', () => {
     for (const call of singleUpdateCalls) {
       expect(call.rank.length).toBeLessThanOrEqual(40);
     }
+  });
+});
+
+describe('TasksService.create — rank growth', () => {
+  /** Stub for the append path: findFirst returns the current last rank,
+   *  create echoes what it was given, findMany/update back the rebalance. */
+  function stubCreatePrisma(lastRank: string | null, siblingIds: string[]) {
+    const updateCalls: RankedRow[] = [];
+    let createdRank = '';
+    const prisma: PrismaStub = {
+      column: { findUnique: jest.fn() },
+      task: {
+        findMany: jest.fn().mockResolvedValue(siblingIds.map((id) => ({ id }))),
+        update: jest.fn(({ where, data }: UpdateArgs) => {
+          updateCalls.push({ id: where.id, rank: data.rank });
+          return Promise.resolve({ id: where.id, rank: data.rank });
+        }),
+        findUniqueOrThrow: jest.fn(() =>
+          Promise.resolve({
+            id: 'new-task',
+            rank: updateCalls.find((u) => u.id === 'new-task')?.rank,
+          }),
+        ),
+      },
+      $transaction: jest.fn(),
+    };
+    Object.assign(prisma.task, {
+      findFirst: jest
+        .fn()
+        .mockResolvedValue(lastRank === null ? null : { rank: lastRank }),
+      create: jest.fn(({ data }: { data: { rank: string } }) => {
+        createdRank = data.rank;
+        return Promise.resolve({
+          id: 'new-task',
+          boardId: 'board-1',
+          rank: data.rank,
+        });
+      }),
+    });
+    prisma.$transaction.mockImplementation((fn: (tx: PrismaStub) => unknown) =>
+      fn(prisma),
+    );
+    return { prisma, updateCalls, createdRank: () => createdRank };
+  }
+
+  it('does not rebalance when the appended rank stays short', async () => {
+    const { prisma, updateCalls } = stubCreatePrisma('m', []);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
+
+    await service.create('board-1', 'col-1', { title: 'T' });
+
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it('rebalances the column once an appended rank exceeds the threshold', async () => {
+    // Forces between(lastRank, last()) past 40 chars. `last()` is 'z', so
+    // position 0 is the adjacent pair y|z — the walk commits to 'y' and
+    // continues unconstrained above; every following 'z' digit is then
+    // adjacent to that unconstrained bound too, so the result grows one
+    // character per 'z' before it can finally split. 1 + 40 + 1 = 42 chars.
+    const longLast = 'y' + 'z'.repeat(40);
+    const { prisma, updateCalls } = stubCreatePrisma(longLast, [
+      'older',
+      'new-task',
+    ]);
+    const service = new TasksService(asPrisma(prisma), noopGateway);
+
+    await service.create('board-1', 'col-1', { title: 'T' });
+
+    // Every task in the column was re-spaced, not just the new one — and
+    // every resulting rank is back under the threshold.
+    expect(updateCalls.map((u) => u.id).sort()).toEqual(['new-task', 'older']);
+    for (const call of updateCalls) {
+      expect(call.rank.length).toBeLessThanOrEqual(40);
+    }
+    // Relative order preserved: the appended task still sorts last.
+    const older = updateCalls.find((u) => u.id === 'older')!.rank;
+    const appended = updateCalls.find((u) => u.id === 'new-task')!.rank;
+    expect(older < appended).toBe(true);
   });
 });

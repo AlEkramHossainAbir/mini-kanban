@@ -84,6 +84,24 @@ function refreshOnce(): Promise<boolean> {
   return refreshInFlight;
 }
 
+/**
+ * Is there a session worth refreshing? Reads `mk_sess`, the non-httpOnly,
+ * non-secret presence flag the backend sets alongside the auth cookies and
+ * expires with `mk_rt`, not `mk_at`.
+ *
+ * This is what lets a `skipAuthRetry` caller (`/auth/me` on first paint)
+ * still recover an expired access token. Without it, `mk_at`'s 15-minute
+ * lifetime made the app shell render signed-out for the remaining ~6 days
+ * 23 hours of a valid session. It is a hint only — never authorization; the
+ * refresh still has to succeed server-side against the real `mk_rt`.
+ */
+function hasSessionHint(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .some((c) => c.trim().startsWith("mk_sess="));
+}
+
 function redirectToLogin(): void {
   if (typeof window === "undefined") return;
   const { pathname, search } = window.location;
@@ -123,14 +141,26 @@ export async function api<T = unknown>(
 
   let res = await send();
 
-  if (res.status === 401 && !skipAuthRetry) {
-    const refreshed = await refreshOnce();
-    if (refreshed) {
-      res = await send();
-    }
-    if (!refreshed || res.status === 401) {
-      redirectToLogin();
-      throw new ApiError(401, await parse(res), "Session expired");
+  if (res.status === 401) {
+    if (!skipAuthRetry) {
+      const refreshed = await refreshOnce();
+      if (refreshed) {
+        res = await send();
+      }
+      if (!refreshed || res.status === 401) {
+        redirectToLogin();
+        throw new ApiError(401, await parse(res), "Session expired");
+      }
+    } else if (hasSessionHint()) {
+      // A `skipAuthRetry` caller still gets ONE silent refresh when a
+      // session plausibly exists — it just never redirects, because for
+      // these callers a 401 is an ordinary "not logged in" answer rather
+      // than a session that expired mid-use. The `mk_sess` guard is what
+      // keeps a genuinely signed-out visitor from firing a pointless
+      // refresh on every public page load.
+      if (await refreshOnce()) {
+        res = await send();
+      }
     }
   }
 

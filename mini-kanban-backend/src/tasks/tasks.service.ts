@@ -32,22 +32,61 @@ export class TasksService {
     private readonly gateway: BoardGateway,
   ) {}
 
+  /**
+   * Append at the end of the column: the midpoint between the current last
+   * rank and the max sentinel.
+   *
+   * That midpoint converges on the sentinel, so each append grows the rank
+   * string — measured at roughly one character per six appends, which puts
+   * append #241 past `RANK_LENGTH_REBALANCE_THRESHOLD` and keeps going from
+   * there. `move` has always checked that threshold; `create` did not, so a
+   * column filled by plain "add task" grew ranks without bound (~1,700
+   * characters by 10,000 tasks) and never self-corrected. The same
+   * rebalance `move` performs is applied here, for the same reason and
+   * scoped the same way — this column only (PLAN §2).
+   */
   async create(boardId: string, columnId: string, dto: CreateTaskDto) {
-    const lastTask = await this.prisma.task.findFirst({
-      where: { columnId },
-      orderBy: [{ rank: 'desc' }, { id: 'desc' }],
-      select: { rank: true },
+    const task = await this.prisma.$transaction(async (tx) => {
+      const lastTask = await tx.task.findFirst({
+        where: { columnId },
+        orderBy: [{ rank: 'desc' }, { id: 'desc' }],
+        select: { rank: true },
+      });
+      const rank = between(lastTask?.rank ?? first(), last());
+      const created = await tx.task.create({
+        data: {
+          boardId,
+          columnId,
+          title: dto.title,
+          description: dto.description,
+          rank,
+        },
+      });
+
+      if (rank.length <= RANK_LENGTH_REBALANCE_THRESHOLD) {
+        return created;
+      }
+
+      // Re-read after the insert so the new row is included and already sits
+      // in its final position — an append is always last, so no splice is
+      // needed the way `move`'s resolved insert index requires one.
+      const siblings = await tx.task.findMany({
+        where: { columnId },
+        orderBy: [{ rank: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      const rebalanced = rebalance(siblings.map((t) => t.id));
+      await Promise.all(
+        siblings.map((sibling, idx) =>
+          tx.task.update({
+            where: { id: sibling.id },
+            data: { rank: rebalanced[idx] },
+          }),
+        ),
+      );
+      return tx.task.findUniqueOrThrow({ where: { id: created.id } });
     });
-    const rank = between(lastTask?.rank ?? first(), last());
-    const task = await this.prisma.task.create({
-      data: {
-        boardId,
-        columnId,
-        title: dto.title,
-        description: dto.description,
-        rank,
-      },
-    });
+
     this.gateway.emit(boardId, BOARD_EVENTS.taskCreated, task);
     return task;
   }

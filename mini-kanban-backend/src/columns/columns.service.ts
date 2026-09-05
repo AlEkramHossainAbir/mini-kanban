@@ -20,16 +20,45 @@ export class ColumnsService {
     private readonly gateway: BoardGateway,
   ) {}
 
+  /** Appends at the end, rebalancing if that pushes the rank past the
+   *  threshold — the same fix, and the same reasoning, as
+   *  `TasksService.create`'s docblock spells out. Far less reachable here
+   *  (it takes ~241 columns on one board), but the two `create` paths are
+   *  identical in shape and there is no reason for only one of them to be
+   *  correct. */
   async create(boardId: string, dto: CreateColumnDto) {
-    const lastColumn = await this.prisma.column.findFirst({
-      where: { boardId },
-      orderBy: [{ rank: 'desc' }, { id: 'desc' }],
-      select: { rank: true },
+    const column = await this.prisma.$transaction(async (tx) => {
+      const lastColumn = await tx.column.findFirst({
+        where: { boardId },
+        orderBy: [{ rank: 'desc' }, { id: 'desc' }],
+        select: { rank: true },
+      });
+      const rank = between(lastColumn?.rank ?? first(), last());
+      const created = await tx.column.create({
+        data: { boardId, title: dto.title, rank },
+      });
+
+      if (rank.length <= RANK_LENGTH_REBALANCE_THRESHOLD) {
+        return created;
+      }
+
+      const siblings = await tx.column.findMany({
+        where: { boardId },
+        orderBy: [{ rank: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      const rebalanced = rebalance(siblings.map((c) => c.id));
+      await Promise.all(
+        siblings.map((sibling, idx) =>
+          tx.column.update({
+            where: { id: sibling.id },
+            data: { rank: rebalanced[idx] },
+          }),
+        ),
+      );
+      return tx.column.findUniqueOrThrow({ where: { id: created.id } });
     });
-    const rank = between(lastColumn?.rank ?? first(), last());
-    const column = await this.prisma.column.create({
-      data: { boardId, title: dto.title, rank },
-    });
+
     this.gateway.emit(boardId, BOARD_EVENTS.columnCreated, column);
     return column;
   }

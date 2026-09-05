@@ -12,10 +12,18 @@
     "outDir": "./dist",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": false,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false
+    // Full strict mode. Was previously scaffolded with strictNullChecks,
+    // noImplicitAny and strictBindCallApply all OFF, which let implicit `any`
+    // compile silently; the codebase already satisfied strict, so this only
+    // locks in what was already true.
+    "strict": true,
+    // The one strict sub-flag that genuinely does not fit this codebase:
+    // class-validator DTO fields are populated by the ValidationPipe and
+    // `@WebSocketServer()` is assigned by Nest, so neither is initialized in
+    // a constructor. Off here rather than sprinkling `!` across 15
+    // declarations, which would assert the same thing far less legibly.
+    "strictPropertyInitialization": false,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true
   }
 }

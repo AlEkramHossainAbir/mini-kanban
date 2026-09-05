@@ -7,8 +7,11 @@ import { RolesGuard } from './roles.guard';
 function mockContext(req: Partial<BoardScopedRequest>): ExecutionContext {
   return {
     switchToHttp: () => ({ getRequest: () => req }),
-    getHandler: () => ({}) as any,
-    getClass: () => ({}) as any,
+    // The guard only forwards these two to Reflector.getAllAndOverride,
+    // which is itself stubbed — their identity is all that matters, so an
+    // empty function/class is the honest stand-in for what Nest passes.
+    getHandler: () => () => undefined,
+    getClass: () => class {},
   } as unknown as ExecutionContext;
 }
 

@@ -15,6 +15,7 @@ import {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
   REFRESH_COOKIE_PATH,
+  SESSION_HINT_COOKIE,
 } from './auth.constants';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -251,12 +252,24 @@ export class AuthService {
       path: '/',
       maxAge: parseTtlMs(process.env.ACCESS_TOKEN_TTL ?? '15m'),
     });
+    const refreshMaxAge = parseTtlMs(process.env.REFRESH_TOKEN_TTL ?? '7d');
     res.cookie(REFRESH_COOKIE, refreshToken, {
       httpOnly: true,
       secure,
       sameSite: 'lax',
       path: REFRESH_COOKIE_PATH,
-      maxAge: parseTtlMs(process.env.REFRESH_TOKEN_TTL ?? '7d'),
+      maxAge: refreshMaxAge,
+    });
+    // Deliberately NOT httpOnly — see SESSION_HINT_COOKIE's docblock. It
+    // holds no secret, and both the Next middleware and client JS need to
+    // read it to know an expired `mk_at` is worth refreshing rather than a
+    // sign-out. Its lifetime tracks `mk_rt`, not `mk_at`.
+    res.cookie(SESSION_HINT_COOKIE, '1', {
+      httpOnly: false,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: refreshMaxAge,
     });
   }
 
@@ -275,6 +288,12 @@ export class AuthService {
       secure,
       sameSite: 'lax',
       path: REFRESH_COOKIE_PATH,
+    });
+    res.clearCookie(SESSION_HINT_COOKIE, {
+      httpOnly: false,
+      secure,
+      sameSite: 'lax',
+      path: '/',
     });
   }
 }

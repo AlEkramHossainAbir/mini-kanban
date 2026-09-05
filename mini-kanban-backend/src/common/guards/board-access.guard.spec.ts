@@ -1,4 +1,5 @@
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { BoardAccessGuard, BoardScopedRequest } from './board-access.guard';
 
 function mockContext(req: Partial<BoardScopedRequest>): ExecutionContext {
@@ -29,7 +30,10 @@ describe('BoardAccessGuard', () => {
       task: {
         findUnique: jest.fn().mockResolvedValue(overrides.task ?? null),
       },
-    } as any;
+      // One explicit `as unknown as` rather than `as any`: the stub really
+      // is a stand-in for the client, and naming the assertion keeps type
+      // checking on everywhere else in this file.
+    } as unknown as PrismaService;
   }
 
   it('allows a member and attaches req.boardRole from :boardId directly', async () => {

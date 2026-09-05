@@ -33,8 +33,13 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 # http://localhost:4000 already matches root docker-compose.yml's `backend`
 # port mapping, so local dev needs no extra build ARG for it — only a
 # non-localhost deployment (Phase 14) would need to pass it explicitly.
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
+# --chown + USER node: the backend image already drops root this way, and an
+# image that runs its server as root for no reason is the kind of difference
+# between two sibling Dockerfiles that is an oversight rather than a decision.
+# Next's standalone server needs no write access to any of this at run time.
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+USER node
 # No `COPY .../public` here, unlike the roadmap's template: this project has
 # no public/ directory. DESIGN §8 draws every icon/illustration as inline SVG
 # specifically so no static-asset or icon dependency is needed (verified —
