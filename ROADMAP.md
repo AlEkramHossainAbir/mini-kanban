@@ -1,7 +1,7 @@
 # Root Roadmap — Orchestration, Packaging & Submission
 
 The order in which the whole thing gets built, wired together, and handed in.
-Per-project detail lives in [`mini-kanban-backend/ROADMAP.md`](mini-kanban-backend/ROADMAP.md) and [`mini-kanban-frontend/ROADMAP.md`](mini-kanban-frontend/ROADMAP.md); design rationale lives in [`PLAN_EN.md`](PLAN_EN.md) / [`PLAN_BN.md`](PLAN_BN.md).
+Per-project detail lives in [`mini-kanban-backend/ROADMAP.md`](mini-kanban-backend/ROADMAP.md) and [`mini-kanban-frontend/ROADMAP.md`](mini-kanban-frontend/ROADMAP.md); design rationale lives in [`PLAN_EN.md`](PLAN_EN.md).
 
 ---
 

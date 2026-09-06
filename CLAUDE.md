@@ -5,7 +5,7 @@ with auth, board sharing/permissions, and drag-and-drop task movement as the gra
 
 ## Read these first, don't re-derive them
 
-- [`ASSESSMENT_EN.md`](ASSESSMENT_EN.md) — the brief, verbatim requirements
+- [`Webbriks_Technical_Assessment.pdf`](Webbriks_Technical_Assessment.pdf) — the brief, verbatim requirements
 - [`PLAN_EN.md`](PLAN_EN.md) — the system design: schema (§2), task-movement API & rank-string
   ordering (§3), authz (§4), security (§5), frontend DnD architecture (§6), explicit
   non-goals (§8), QA checklist (§10)
@@ -121,5 +121,7 @@ Motion polish → WebSocket live sync → audit logging → keyboard drag-and-dr
 
 ## Assessment docs in this repo
 
-`ASSESSMENT_BN.md` / `PLAN_BN.md` are Bangla translations of the same content — English versions
-are canonical for implementation decisions.
+The Bangla translations (`ASSESSMENT_BN.md`, `PLAN_BN.md`) and the English `ASSESSMENT_EN.md` were
+removed from the submission on 2026-09-06 to keep the repo focused for reviewers —
+`Webbriks_Technical_Assessment.pdf` is the canonical brief and `PLAN_EN.md` the canonical design
+doc; both stay.

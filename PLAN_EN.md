@@ -1,6 +1,6 @@
 # System Design & Implementation Plan — Mini Kanban Board
 
-**Scope note:** the official assessment (see [ASSESSMENT_EN.md](ASSESSMENT_EN.md)) is a 4-day take-home on a single-instance PostgreSQL stack. It does not ask for sharding or million-user SLAs. This plan is written in layers on purpose:
+**Scope note:** the official assessment ([Webbriks_Technical_Assessment.pdf](Webbriks_Technical_Assessment.pdf)) is a 4-day take-home on a single-instance PostgreSQL stack. It does not ask for sharding or million-user SLAs. This plan is written in layers on purpose:
 
 - **Sections 1–6, 9** describe what is actually **built for the 4-day submission** — a correct, secure, well-architected MVP on the prescribed stack.
 - **Section 7** is a **documented roadmap**, not code to write now — it explains how the same data model evolves toward very large scale (millions of users), so the design decisions made in the MVP (see the callouts) are shown to be compatible with that future, without over-engineering a take-home assessment.
@@ -381,8 +381,7 @@ Stated here deliberately, so nothing looks like an oversight: these are real Kan
 mini-kanban/
 ├── README.md                 (setup steps + sample env vars)
 ├── docker-compose.yml        (db + backend + frontend)
-├── ASSESSMENT_EN.md / ASSESSMENT_BN.md
-├── PLAN_EN.md / PLAN_BN.md   (this document)
+├── PLAN_EN.md                (this document)
 ├── mini-kanban-backend/
 │   ├── src/
 │   │   ├── auth/            (controller, service, strategies, DTOs, guards)

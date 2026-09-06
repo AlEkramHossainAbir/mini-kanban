@@ -2,9 +2,9 @@
 
 A full-stack Kanban board — boards → columns → tasks — with token-based auth, per-board
 role-based sharing (Owner/Editor/Viewer), and a drag-and-drop board view backed by a
-conflict-free, position-index-aware task-movement API. Built as a 4-day technical assessment for
-**Webbriks**. Full design rationale lives in [PLAN_EN.md](PLAN_EN.md); the original brief is in
-[ASSESSMENT_EN.md](ASSESSMENT_EN.md).
+conflict-free, position-index-aware task-movement API. Built as a 4-day take-home technical
+assessment for **Webbriks**. Full design rationale — schema, the task-movement API, authorization,
+security, and the frontend drag-and-drop architecture — lives in [PLAN_EN.md](PLAN_EN.md).
 
 ![A card mid-drag on the Mini Kanban board, tilted under the cursor above the "In Progress" column](docs/board-drag.png)
 
@@ -233,9 +233,15 @@ written out in [PLAN_EN.md §8](PLAN_EN.md#8-explicitly-out-of-scope-for-the-4-d
 this design to much larger traffic (read replicas, sharding by board, Redis caching, horizontal
 API scaling) is a documented — not built — roadmap in [PLAN_EN.md](PLAN_EN.md), §7.
 
-## About the assessment
+## Documentation
 
-- [Webbriks_Technical_Assessment.pdf](Webbriks_Technical_Assessment.pdf) — original assessment PDF
-- [ASSESSMENT_EN.md](ASSESSMENT_EN.md) / [ASSESSMENT_BN.md](ASSESSMENT_BN.md) — the brief, English and Bangla
-- [PLAN_EN.md](PLAN_EN.md) / [PLAN_BN.md](PLAN_BN.md) — the full system design (English is canonical)
-- [ROADMAP.md](ROADMAP.md) — the build order this project was actually implemented in
+- [PLAN_EN.md](PLAN_EN.md) — the full system design: schema, the task-movement API and its
+  rank-string ordering, authorization, security hardening, and the frontend drag-and-drop
+  architecture
+- [ROADMAP.md](ROADMAP.md) — the build order this project was actually implemented in, plus the
+  per-app [backend](mini-kanban-backend/ROADMAP.md) and [frontend](mini-kanban-frontend/ROADMAP.md)
+  roadmaps
+- [mini-kanban-frontend/DESIGN.md](mini-kanban-frontend/DESIGN.md) — the "Filing Room" visual
+  design system
+- [Webbriks_Technical_Assessment.pdf](Webbriks_Technical_Assessment.pdf) — the original assessment
+  brief this project was scoped against
