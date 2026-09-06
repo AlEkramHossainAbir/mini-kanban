@@ -65,16 +65,24 @@ npm run start:dev
 
 # 3. Frontend — http://localhost:3000
 cd mini-kanban-frontend
+# No `cp .env.example .env` here (unlike the backend): both variables it defines
+# already default to http://localhost:4000 in code — see next.config.mjs and
+# src/lib/realtime.ts — which matches the backend above. Copy it only if your
+# backend runs elsewhere or you'd rather have the values written down.
 npm install
-BACKEND_URL=http://localhost:4000 npm run dev
+npm run dev
 ```
 
 The frontend proxies `/api/v1/*` to `BACKEND_URL` via a Next.js rewrite (`next.config.mjs`) so the
 browser only ever talks to one origin — this is what lets `SameSite=Lax` auth cookies survive
-(see [PLAN_EN.md §1](PLAN_EN.md#1-system-architecture-overview)). `BACKEND_URL` is read at Next.js
-**build** time, not run time, so in Docker it's passed as a build `ARG` rather than through
-`env_file:` — see [docker-compose.yml](docker-compose.yml)'s comments and
-[mini-kanban-frontend/ROADMAP.md](mini-kanban-frontend/ROADMAP.md) Phase 2/12 for why.
+(see [PLAN_EN.md §1](PLAN_EN.md#1-system-architecture-overview)). `next.config.mjs` reads
+`BACKEND_URL` once, when it's loaded — for `npm run dev` that's when the dev server starts, for
+`npm run build` it's baked into the production output and can't be changed at `next start` time
+afterwards. That's why Docker passes it as a build `ARG` rather than through `env_file:` — see
+[docker-compose.yml](docker-compose.yml)'s comments and
+[mini-kanban-frontend/ROADMAP.md](mini-kanban-frontend/ROADMAP.md) Phase 2/12 for why. If your
+backend runs somewhere other than `localhost:4000`, point the dev server at it explicitly, e.g.
+`BACKEND_URL=http://localhost:5000 npm run dev`.
 
 ## Sample environment variables
 
