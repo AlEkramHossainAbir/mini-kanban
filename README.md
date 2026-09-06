@@ -109,6 +109,38 @@ Generate the two JWT secrets with `openssl rand -base64 32` each — they must b
 (the app refuses to boot in production if they match, since that would make the refresh-token HMAC
 key double as the access-token signing key).
 
+## Tests
+
+```bash
+# Backend — 67 unit tests (pure: rank maths, guards, services against mocks)
+cd mini-kanban-backend && npm test
+
+# Backend — 57 e2e tests against a REAL Postgres, booting the real AppModule
+# through the same configureApp() as main.ts: the full guard chain, the
+# ValidationPipe, the rate limiter and the CSRF guard are all live.
+# Point DATABASE_URL at the running database first (see Quick start).
+npm run test:e2e
+
+# Frontend — 36 unit tests (Vitest)
+cd mini-kanban-frontend && npm test
+```
+
+The e2e suite is where the graded behaviour is pinned down: the `409` conflict
+path and five concurrent movers with exactly one winner, the literal
+`position`-index payload, cross-board IDOR returning the same `403` as a
+non-existent board (no not-found oracle), `VIEWER` blocked on every mutation,
+the last-owner guard, and a stale neighbour id self-healing into an append.
+
+Frontend tests deliberately cover the *pure* logic rather than simulating drags
+in jsdom — rank ordering, the optimistic-cache transforms, and the
+drop→neighbour-id derivation that builds the move payload. Those are the pieces
+where a silent regression corrupts board order; the drag interaction itself is
+covered by the manual QA matrix in [PLAN_EN.md §10](PLAN_EN.md).
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all of the above on
+every push, plus a job that does the `docker compose up --build` bring-up from a
+clean checkout and asserts login works *through* the Next.js rewrite proxy.
+
 ## API endpoints
 
 Every route below is under `/api/v1`. **Role** is the minimum `BoardMember` role required;

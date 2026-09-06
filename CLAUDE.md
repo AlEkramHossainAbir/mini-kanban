@@ -27,25 +27,31 @@ are already written down there. Don't relitigate them without a real reason.
 
 - Root repo is a **single repository with vendored directories** (Phase 0 of ROADMAP.md is
   done — no more git submodules, no `.gitmodules`).
-- `mini-kanban-backend/` — **backend ROADMAP Phases 0–13 are done** (all 22 endpoints in PLAN
-  §3's table, the WebSocket gateway, the audit log, the CSRF header guard fix, tests, and the
-  Dockerfile). Only **Phase 14 (deploy)** remains, and it's marked optional/Day-4. See
-  `mini-kanban-backend/ROADMAP.md` for the phase-by-phase detail and verification notes.
-- `mini-kanban-frontend/` — **frontend ROADMAP Phases 0–8 are done**: scaffold, the same-origin
-  proxy, tokens/providers/primitives, auth pages, the boards list, the read-only board view (the
-  Filing Room shell — angle-cut manila tabs, ruled index cards), `dnd-kit` drag-and-drop, and the
-  optimistic move/conflict-handling layer (`onMutate`/rollback/Undo/per-task sequencing in
-  `useMoveTask`). **Next up: Phase 9 (task & column CRUD)** — add/edit/delete task, add/rename/
-  delete column, column drag. **The visual direction is settled**: "Filing Room" (walnut desk,
-  angle-cut manila tabs, ruled index cards), chosen 2026-09-04 and specified in
-  `mini-kanban-frontend/DESIGN.md`. See `mini-kanban-frontend/ROADMAP.md` for detail.
-- Root `.gitignore` and root `.env.example` both exist (Phase 1 done). Still missing from root
-  ROADMAP.md Phase 3: `docker-compose.yml` — note its own timing said "end of Day 1 for `db` +
-  `backend`", so it is the one item running behind its plan.
-- Root `README.md` is **stale** — it still describes the two apps as git submodules and tells
-  readers to `git clone --recurse-submodules`, which stopped being true at Phase 0. Its submodule
-  instructions have been corrected, but the full rewrite is root ROADMAP.md Phase 4 and hasn't
-  happened; it has no quick start, env var block, or API table yet.
+- **All three ROADMAP.md files are fully checked off** — root 30/30, backend 70/70, frontend
+  89/89. There is no "next phase" left to implement; new work is improvement, not build-out.
+- `mini-kanban-backend/` — all 22 endpoints in PLAN §3's table, the WebSocket gateway, the audit
+  log, the CSRF header guard, the Dockerfile, and deployment. **67 unit tests + 57 e2e tests**
+  (the e2e suite needs a live Postgres and `DATABASE_URL`/`JWT_*` in the environment; it boots the
+  real `AppModule` through the same `configureApp()` as `main.ts`).
+- `mini-kanban-frontend/` — scaffold through column drag and realtime sync, all done, plus board
+  sharing and member role management. **36 unit tests** under Vitest (`npm test`), scoped to the
+  pure logic: `lib/rank.ts`, the cache transforms in `lib/tasks.ts`, and
+  `components/board/neighbors.ts`. **The visual direction is settled**: "Filing Room" (walnut
+  desk, angle-cut manila tabs, ruled index cards), chosen 2026-09-04 and specified in
+  `mini-kanban-frontend/DESIGN.md`.
+- Root `.gitignore`, `.env.example`, `docker-compose.yml` and `README.md` all exist and are
+  current — the README carries the quick start, the env var block, the full API table, the
+  architecture summary and the live demo links.
+- `.github/workflows/ci.yml` runs three jobs: backend (lint/types/unit/e2e against a Postgres
+  service container), frontend (lint/types/unit/build), and a docker job that does the real
+  `cp .env.example .env && docker compose up --build` acceptance test, then proves login works
+  *through the Next rewrite proxy* and that the CSRF guard rejects a headerless POST.
+- **The live deployment drifts from `main` unless it is redeployed.** It is a git-push-triggered
+  deploy (Railway backend, Vercel frontend) and has been behind before — the symptom to check for
+  is `GET /boards/:id/members/candidates` returning 404, or `POST /auth/login` not setting the
+  `mk_sess` cookie. Both mean the deployed build predates work that is already on `main`. The
+  missing `mk_sess` specifically logs reviewers out after 15 idle minutes, because
+  `middleware.ts` gates `/boards/*` on `mk_at || mk_sess` and `mk_at` lives only 15 minutes.
 - **Env vars are validated at boot** (`src/common/env.validation.ts`, wired into
   `ConfigModule.forRoot`): a missing/duplicated JWT secret or a malformed TTL stops the process
   with a readable error. It stays lenient outside `NODE_ENV=production` on purpose, so root

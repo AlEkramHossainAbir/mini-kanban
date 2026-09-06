@@ -272,10 +272,17 @@ export class BoardsService {
 
     let member: MemberView;
     try {
-      member = await this.prisma.boardMember.update({
-        where: { boardId_userId: { boardId, userId } },
-        data: { role },
-        select: MEMBER_SELECT,
+      // The role write and the `Board.ownerId` reconciliation share one
+      // transaction: a board must never be observable naming an `ownerId`
+      // who is no longer one of its OWNERs, not even briefly.
+      member = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.boardMember.update({
+          where: { boardId_userId: { boardId, userId } },
+          data: { role },
+          select: MEMBER_SELECT,
+        });
+        await this.syncBoardOwner(tx, boardId, userId, role);
+        return updated;
       });
     } catch (err) {
       if (isRecordNotFoundError(err)) {
@@ -312,8 +319,14 @@ export class BoardsService {
   ): Promise<void> {
     const previous = await this.assertLastOwnerSafe(boardId, userId, null);
     try {
-      await this.prisma.boardMember.delete({
-        where: { boardId_userId: { boardId, userId } },
+      // Same transaction pairing as `updateMemberRole` above, for the same
+      // reason: removing the member `Board.ownerId` points at has to hand
+      // that column to a surviving OWNER in the same commit.
+      await this.prisma.$transaction(async (tx) => {
+        await tx.boardMember.delete({
+          where: { boardId_userId: { boardId, userId } },
+        });
+        await this.syncBoardOwner(tx, boardId, userId, null);
       });
     } catch (err) {
       if (isRecordNotFoundError(err)) {
@@ -335,6 +348,57 @@ export class BoardsService {
     // its board view to treat itself as no-longer-a-member (PLAN §4's guard
     // chain is what actually stops it acting on the board in the meantime).
     this.gateway.emit(boardId, BOARD_EVENTS.memberRemoved, { userId });
+  }
+
+  /**
+   * Keeps the denormalized `Board.ownerId` column honest.
+   *
+   * `BoardMember` is the single source of truth for access (PLAN §4) and
+   * nothing authorizes off `ownerId` — but the column is still returned by
+   * `GET /boards` and `GET /boards/:id`, and it could drift out of agreement
+   * with the membership table: promote a second OWNER, then demote or remove
+   * the original, and `assertLastOwnerSafe` rightly allows it while
+   * `ownerId` went on naming someone who is no longer an OWNER (and, after a
+   * removal, not even a member). The API then advertised an owner the guard
+   * chain would refuse, which is a contradiction a reader of the response has
+   * no way to resolve.
+   *
+   * Runs inside the caller's transaction, after the membership row has been
+   * written, so the two can never be observed disagreeing. A no-op unless the
+   * changed user *is* the recorded owner and has just stopped being an OWNER;
+   * `assertLastOwnerSafe` has already guaranteed a successor exists by the
+   * time this can need one.
+   */
+  private async syncBoardOwner(
+    tx: Prisma.TransactionClient,
+    boardId: string,
+    changedUserId: string,
+    newRole: BoardRole | null,
+  ): Promise<void> {
+    if (newRole === BoardRole.OWNER) {
+      return; // still an OWNER — the column is still accurate
+    }
+    const board = await tx.board.findUnique({
+      where: { id: boardId },
+      select: { ownerId: true },
+    });
+    if (board?.ownerId !== changedUserId) {
+      return; // someone else is the recorded owner; nothing to hand over
+    }
+    // Longest-standing remaining OWNER, so the successor is deterministic
+    // rather than whatever the planner happened to return first.
+    const successor = await tx.boardMember.findFirst({
+      where: { boardId, role: BoardRole.OWNER, userId: { not: changedUserId } },
+      orderBy: [{ createdAt: 'asc' }, { userId: 'asc' }],
+      select: { userId: true },
+    });
+    if (!successor) {
+      return; // unreachable via the guard above — never leave ownerId dangling
+    }
+    await tx.board.update({
+      where: { id: boardId },
+      data: { ownerId: successor.userId },
+    });
   }
 
   /**

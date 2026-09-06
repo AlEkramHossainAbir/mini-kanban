@@ -300,6 +300,79 @@ describe('Authorization (e2e)', () => {
         .send({ role: 'OWNER' })
         .expect(200);
     });
+
+    it('hands Board.ownerId to a surviving OWNER when the recorded one is demoted', async () => {
+      const solo = await ctx.signUp();
+      const board = await solo.agent
+        .post('/api/v1/boards')
+        .send({ title: 'Succession by demotion' })
+        .expect(201);
+      expect(board.body.ownerId).toBe(solo.id);
+
+      const heir = await ctx.signUp();
+      await solo.agent
+        .post(`/api/v1/boards/${board.body.id}/members`)
+        .send({ email: heir.email, role: 'OWNER' })
+        .expect(201);
+      await solo.agent
+        .patch(`/api/v1/boards/${board.body.id}/members/${solo.id}`)
+        .send({ role: 'VIEWER' })
+        .expect(200);
+
+      // `ownerId` must not go on naming a member the guard chain would now
+      // refuse as an OWNER — it follows the membership table.
+      const after = await heir.agent
+        .get(`/api/v1/boards/${board.body.id}`)
+        .expect(200);
+      expect(after.body.ownerId).toBe(heir.id);
+    });
+
+    it('hands Board.ownerId over when the recorded owner is removed outright', async () => {
+      const solo = await ctx.signUp();
+      const board = await solo.agent
+        .post('/api/v1/boards')
+        .send({ title: 'Succession by removal' })
+        .expect(201);
+
+      const heir = await ctx.signUp();
+      await solo.agent
+        .post(`/api/v1/boards/${board.body.id}/members`)
+        .send({ email: heir.email, role: 'OWNER' })
+        .expect(201);
+      await heir.agent
+        .delete(`/api/v1/boards/${board.body.id}/members/${solo.id}`)
+        .expect(204);
+
+      const after = await heir.agent
+        .get(`/api/v1/boards/${board.body.id}`)
+        .expect(200);
+      // The removed user isn't even a member any more, so this is the case
+      // where a stale ownerId would have been most misleading.
+      expect(after.body.ownerId).toBe(heir.id);
+    });
+
+    it('leaves Board.ownerId alone when a non-owner member changes role', async () => {
+      const solo = await ctx.signUp();
+      const board = await solo.agent
+        .post('/api/v1/boards')
+        .send({ title: 'Owner unaffected' })
+        .expect(201);
+
+      const helper = await ctx.signUp();
+      await solo.agent
+        .post(`/api/v1/boards/${board.body.id}/members`)
+        .send({ email: helper.email, role: 'EDITOR' })
+        .expect(201);
+      await solo.agent
+        .patch(`/api/v1/boards/${board.body.id}/members/${helper.id}`)
+        .send({ role: 'VIEWER' })
+        .expect(200);
+
+      const after = await solo.agent
+        .get(`/api/v1/boards/${board.body.id}`)
+        .expect(200);
+      expect(after.body.ownerId).toBe(solo.id);
+    });
   });
 
   describe('revoked access', () => {

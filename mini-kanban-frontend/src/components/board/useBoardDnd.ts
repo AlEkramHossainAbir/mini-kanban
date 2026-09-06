@@ -18,6 +18,7 @@ import { useMoveColumn } from "@/lib/columns";
 import { sortByRank } from "@/lib/rank";
 import { useMoveTask, type MoveTaskPayload } from "@/lib/tasks";
 import type { Board, Column, Task } from "@/lib/types";
+import { neighborsOf, sameNeighbors, type Neighbors } from "./neighbors";
 
 /**
  * A column's own sortable id is prefixed (frontend ROADMAP Phase 9) so it
@@ -109,8 +110,7 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
   const startRef = useRef<{
     taskId: string;
     columnId: string;
-    beforeTaskId: string | null;
-    afterTaskId: string | null;
+    neighbors: Neighbors;
   } | null>(null);
 
   // The column-reorder twin of the task state just above — a flat id order
@@ -120,8 +120,7 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
   const [columnOrder, setColumnOrder] = useState<string[] | null>(null);
   const columnStartRef = useRef<{
     columnId: string;
-    beforeColumnId: string | null;
-    afterColumnId: string | null;
+    neighbors: Neighbors;
   } | null>(null);
 
   const taskMap = useMemo(() => {
@@ -186,11 +185,9 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
         setColumnOrder(ids);
         setActiveColumnId(columnId);
 
-        const index = ids.indexOf(columnId);
         columnStartRef.current = {
           columnId,
-          beforeColumnId: index > 0 ? ids[index - 1] : null,
-          afterColumnId: index >= 0 && index < ids.length - 1 ? ids[index + 1] : null,
+          neighbors: neighborsOf(ids, columnId),
         };
         return;
       }
@@ -202,12 +199,10 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
 
       const containerId = findContainer(base, id);
       const ids = containerId ? base[containerId] : [];
-      const index = ids.indexOf(id);
       startRef.current = {
         taskId: id,
         columnId: containerId ?? "",
-        beforeTaskId: index > 0 ? ids[index - 1] : null,
-        afterTaskId: index >= 0 && index < ids.length - 1 ? ids[index + 1] : null,
+        neighbors: neighborsOf(ids, id),
       };
     },
     [board]
@@ -293,14 +288,8 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
       }
       setColumnOrder(finalOrder);
 
-      const index = finalOrder.indexOf(activeColumnId);
-      const beforeColumnId = index > 0 ? finalOrder[index - 1] : null;
-      const afterColumnId = index >= 0 && index < finalOrder.length - 1 ? finalOrder[index + 1] : null;
-
-      const unchanged =
-        beforeColumnId === start.beforeColumnId && afterColumnId === start.afterColumnId;
-
-      if (unchanged) {
+      const landed = neighborsOf(finalOrder, activeColumnId);
+      if (sameNeighbors(landed, start.neighbors)) {
         reset();
         return;
       }
@@ -308,7 +297,10 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
       moveColumn.mutate(
         {
           columnId: activeColumnId,
-          payload: { beforeColumnId, afterColumnId },
+          payload: {
+            beforeColumnId: landed.before,
+            afterColumnId: landed.after,
+          },
           optimisticOrder: finalOrder,
         },
         { onSettled: reset }
@@ -356,15 +348,12 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
       setDragOrder(finalOrder);
 
       const targetIds = finalOrder[overContainer] ?? [];
-      const index = targetIds.indexOf(activeId);
-      const beforeTaskId = index > 0 ? targetIds[index - 1] : null;
-      const afterTaskId =
-        index >= 0 && index < targetIds.length - 1 ? targetIds[index + 1] : null;
+      const landed = neighborsOf(targetIds, activeId);
 
+      // A card put back exactly where it was — same column AND same pair of
+      // neighbours — is a no-op, not a move worth a round trip.
       const unchanged =
-        overContainer === start.columnId &&
-        beforeTaskId === start.beforeTaskId &&
-        afterTaskId === start.afterTaskId;
+        overContainer === start.columnId && sameNeighbors(landed, start.neighbors);
 
       const task = taskMap.get(activeId);
       if (unchanged || !task) {
@@ -374,8 +363,8 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
 
       const payload: MoveTaskPayload = {
         targetColumnId: overContainer,
-        beforeTaskId,
-        afterTaskId,
+        beforeTaskId: landed.before,
+        afterTaskId: landed.after,
         expectedVersion: task.version,
       };
 
@@ -383,8 +372,8 @@ export function useBoardDnd(board: Board | undefined, boardId: string) {
       // toast can offer a symmetric Undo (PLAN §6, frontend ROADMAP Phase 8).
       const undoTo = {
         targetColumnId: start.columnId,
-        beforeTaskId: start.beforeTaskId,
-        afterTaskId: start.afterTaskId,
+        beforeTaskId: start.neighbors.before,
+        afterTaskId: start.neighbors.after,
       };
 
       // The drag preview (`finalOrder`) stays rendered — instead of
